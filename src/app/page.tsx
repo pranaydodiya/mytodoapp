@@ -27,7 +27,7 @@ const DEFAULT_FILTERS: FilterState = {
   sortDir:    'desc',
 }
 
-// ─── API helpers ──────────────────────────────────────────────────────────────
+// ─── API helpers modified ──────────────────────────────────────────────────────────────
 
 async function apiFetchTodos(filters: FilterState): Promise<Todo[]> {
   const p = new URLSearchParams()
