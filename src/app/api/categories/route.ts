@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { categories } from '@/lib/store'
-import { Category } from '@/types/todo'
+import { todoRepository } from '@/lib/todoRepository'
+import type { Category } from '@/types/todo'
 
 export async function GET() {
+  const categories = todoRepository.getCategories()
   return NextResponse.json(categories, { status: 200 })
 }
 
@@ -22,7 +23,7 @@ export async function POST(request: NextRequest) {
       : '#6b7280',
   }
 
-  categories.push(newCategory)
+  todoRepository.addCategory(newCategory)
   return NextResponse.json(newCategory, { status: 201 })
 }
 
@@ -34,11 +35,10 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: 'id query param is required' }, { status: 400 })
   }
 
-  const index = categories.findIndex(c => c.id === id)
-  if (index === -1) {
+  const deleted = todoRepository.deleteCategory(id)
+  if (!deleted) {
     return NextResponse.json({ error: 'Category not found' }, { status: 404 })
   }
 
-  categories.splice(index, 1)
   return NextResponse.json({ message: 'Category deleted' }, { status: 200 })
 }

@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server'
-import { todos, categories } from '@/lib/store'
+import { todoRepository } from '@/lib/todoRepository'
 
 export async function GET() {
+  const todos = todoRepository.list()
+  const categories = todoRepository.getCategories()
   const now = new Date()
 
   const total = todos.length
