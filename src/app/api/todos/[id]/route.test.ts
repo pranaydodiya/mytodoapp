@@ -8,6 +8,39 @@ describe('/api/todos/[id]', () => {
     await prisma.todo.deleteMany()
   })
 
+  it('PATCH updates text and fields', async () => {
+    const todo = await prisma.todo.create({
+      data: { text: 'old', completed: false, priority: 'low' },
+    })
+    const res = await PATCH(
+      new NextRequest('http://localhost/api/todos/1', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: '  new label  ', priority: 'high' }),
+      }),
+      { params: Promise.resolve({ id: String(todo.id) }) },
+    )
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.text).toBe('new label')
+    expect(body.priority).toBe('high')
+  })
+
+  it('PATCH 400 when body is empty', async () => {
+    const todo = await prisma.todo.create({
+      data: { text: 'x', completed: false, priority: 'medium' },
+    })
+    const res = await PATCH(
+      new NextRequest('http://localhost/api/todos/1', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      }),
+      { params: Promise.resolve({ id: String(todo.id) }) },
+    )
+    expect(res.status).toBe(400)
+  })
+
   it('PATCH toggles completed', async () => {
     const todo = await prisma.todo.create({
       data: { text: 't', completed: false, priority: 'medium' },

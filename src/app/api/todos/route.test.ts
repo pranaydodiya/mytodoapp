@@ -110,6 +110,29 @@ describe('/api/todos', () => {
     expect((await withCat.json())).toHaveLength(1)
   })
 
+  it('GET sort=dueDate_asc orders by due date', async () => {
+    await prisma.todo.createMany({
+      data: [
+        {
+          text: 'later',
+          priority: 'medium',
+          dueDate: new Date('2030-06-01T12:00:00.000Z'),
+        },
+        {
+          text: 'sooner',
+          priority: 'medium',
+          dueDate: new Date('2026-01-15T12:00:00.000Z'),
+        },
+      ],
+    })
+    const res = await GET(
+      new NextRequest('http://localhost/api/todos?sort=dueDate_asc'),
+    )
+    expect(res.status).toBe(200)
+    const list: { text: string }[] = await res.json()
+    expect(list.map(t => t.text)).toEqual(['sooner', 'later'])
+  })
+
   it('POST rejects empty text', async () => {
     const post = await POST(
       new NextRequest('http://localhost/api/todos', {

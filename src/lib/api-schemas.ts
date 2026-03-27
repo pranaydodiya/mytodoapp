@@ -2,11 +2,21 @@ import { z } from 'zod'
 
 export const prioritySchema = z.enum(['low', 'medium', 'high'])
 
+export const todoSortSchema = z.enum([
+  'createdAt_desc',
+  'createdAt_asc',
+  'dueDate_asc',
+  'dueDate_desc',
+  'priority_desc',
+  'priority_asc',
+])
+
 export const todosGetQuerySchema = z.object({
   search: z.string().optional(),
   completed: z.enum(['true', 'false']).optional(),
   priority: prioritySchema.optional(),
   categoryId: z.union([z.literal('null'), z.string().regex(/^\d+$/)]).optional(),
+  sort: todoSortSchema.optional(),
 })
 
 export const todosPostBodySchema = z.object({
@@ -19,9 +29,28 @@ export const todosPostBodySchema = z.object({
     .optional(),
 })
 
-export const todoPatchBodySchema = z.object({
-  completed: z.boolean({ invalid_type_error: 'completed must be a boolean' }),
-})
+export const todoPatchBodySchema = z
+  .object({
+    completed: z.boolean({ invalid_type_error: 'completed must be a boolean' }).optional(),
+    text: z.string().trim().min(1, 'text cannot be empty').optional(),
+    priority: prioritySchema.optional(),
+    categoryId: z.union([z.number().int().positive(), z.null()]).optional(),
+    dueDate: z
+      .union([
+        z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'dueDate must be YYYY-MM-DD'),
+        z.null(),
+      ])
+      .optional(),
+  })
+  .refine(
+    d =>
+      d.completed !== undefined ||
+      d.text !== undefined ||
+      d.priority !== undefined ||
+      d.categoryId !== undefined ||
+      d.dueDate !== undefined,
+    { message: 'At least one field is required' },
+  )
 
 export const categoryPostBodySchema = z.object({
   name: z.string().trim().min(1, 'name is required'),
