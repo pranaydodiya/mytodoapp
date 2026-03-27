@@ -4,12 +4,15 @@ import { jsonError, parseJsonBody, parseQueryParams } from '@/lib/api-response'
 import { todosGetQuerySchema, todosPostBodySchema } from '@/lib/api-schemas'
 import { prisma } from '@/lib/prisma'
 import { todoToDto } from '@/lib/todo-mappers'
+import { sortTodoRows, type TodoSort } from '@/lib/todo-sort'
 
 export async function GET(request: NextRequest) {
   const query = parseQueryParams(request.nextUrl.searchParams, todosGetQuerySchema)
   if (!query.ok) return query.response
 
-  const { search, completed, priority, categoryId: categoryIdRaw } = query.data
+  const { search, completed, priority, categoryId: categoryIdRaw, sort: sortRaw } =
+    query.data
+  const sort: TodoSort = sortRaw ?? 'createdAt_desc'
 
   const where: Prisma.TodoWhereInput = {}
 
@@ -30,10 +33,21 @@ export async function GET(request: NextRequest) {
     where.categoryId = Number(categoryIdRaw)
   }
 
-  const rows = await prisma.todo.findMany({
-    where,
-    orderBy: { createdAt: 'desc' },
-  })
+  const prioritySort = sort === 'priority_desc' || sort === 'priority_asc'
+
+  const rows = prioritySort
+    ? sortTodoRows(await prisma.todo.findMany({ where }), sort)
+    : await prisma.todo.findMany({
+        where,
+        orderBy:
+          sort === 'createdAt_asc'
+            ? { createdAt: 'asc' }
+            : sort === 'dueDate_asc'
+              ? [{ dueDate: 'asc' }, { createdAt: 'desc' }]
+              : sort === 'dueDate_desc'
+                ? [{ dueDate: 'desc' }, { createdAt: 'desc' }]
+                : { createdAt: 'desc' },
+      })
 
   return NextResponse.json(rows.map(todoToDto))
 }

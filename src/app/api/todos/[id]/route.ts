@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client'
 import { NextRequest, NextResponse } from 'next/server'
 import { jsonError, parseJsonBody } from '@/lib/api-response'
 import { todoPatchBodySchema } from '@/lib/api-schemas'
@@ -22,16 +23,37 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   const parsed = await parseJsonBody(request, todoPatchBodySchema)
   if (!parsed.ok) return parsed.response
 
-  const { completed } = parsed.data
+  const body = parsed.data
 
   const existing = await prisma.todo.findUnique({ where: { id } })
   if (!existing) {
     return jsonError('Todo not found', 404, { code: 'NOT_FOUND' })
   }
 
+  if (body.categoryId !== undefined && body.categoryId !== null) {
+    const cat = await prisma.category.findUnique({ where: { id: body.categoryId } })
+    if (!cat) {
+      return jsonError('Category not found', 400, { code: 'CATEGORY_NOT_FOUND' })
+    }
+  }
+
+  const data: Prisma.TodoUpdateInput = {}
+  if (body.completed !== undefined) data.completed = body.completed
+  if (body.text !== undefined) data.text = body.text
+  if (body.priority !== undefined) data.priority = body.priority
+  if (body.categoryId !== undefined) {
+    data.categoryId = body.categoryId
+  }
+  if (body.dueDate !== undefined) {
+    data.dueDate =
+      body.dueDate === null
+        ? null
+        : new Date(`${body.dueDate}T12:00:00.000Z`)
+  }
+
   const row = await prisma.todo.update({
     where: { id },
-    data: { completed },
+    data,
   })
   return NextResponse.json(todoToDto(row))
 }
