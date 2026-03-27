@@ -50,7 +50,29 @@ export async function GET(request: NextRequest) {
               ? [{ dueDate: 'asc' }, { createdAt: 'desc' }]
               : sort === 'dueDate_desc'
                 ? [{ dueDate: 'desc' }, { createdAt: 'desc' }]
+// Current (verbose):
+  const rows = prioritySort
+    ? sortTodoRows(await prisma.todo.findMany({ where }), sort)
+    : await prisma.todo.findMany({
+        where,
+        orderBy:
+          sort === 'createdAt_asc'
+            ? { createdAt: 'asc' }
+            : sort === 'dueDate_asc'
+              ? [{ dueDate: 'asc' }, { createdAt: 'desc' }]
+              : sort === 'dueDate_desc'
+                ? [{ dueDate: 'desc' }, { createdAt: 'desc' }]
                 : { createdAt: 'desc' },
+      })
+
+  // ✨ Compact/optimized:
+  let orderBy: Prisma.TodoOrderByWithRelationInput | Prisma.TodoOrderByWithRelationInput[] = {
+
+## 🐛 Bugs
+
+### 🔵 Low
+- **`src/app/api/todos/route.ts:36-50`** — Potential performance bottleneck for large datasets
+  The API performs client-side sorting for `priority_desc` and `priority_asc` by fetching all todos and then sorting them in memory. For a small number of todos, this is acceptable, but for very large datasets, it would be more efficient to leverage the database's sorting capabilities. While Prisma's `orderBy` might not directly support custom enum order, it could be achieved with a raw query or by adding a numeric priority field to the database.
       })
 
   // ✨ Compact/optimized:
