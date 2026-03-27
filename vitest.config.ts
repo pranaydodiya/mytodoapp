@@ -10,6 +10,10 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
+    env: {
+      DATABASE_URL: 'file:./prisma/test.db',
+    },
+    globalSetup: ['./vitest.global-setup.ts'],
     setupFiles: ['./vitest.setup.ts'],
     include: ['src/**/*.test.ts'],
     fileParallelism: false,
