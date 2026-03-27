@@ -84,11 +84,26 @@ Returns `{ total, completed, pending, overdue, byPriority, byCategory }`.
 - **`Environment variable not found: DATABASE_URL`** — Add `DATABASE_URL` to `.env` (Prisma CLI reads `.env` by default; Next.js also loads `.env.local`).
 - **`@prisma/client` did not initialize** — Run `npx prisma generate` after schema changes.
 - **Schema out of sync** — Run `npx prisma migrate deploy` (or `npm run prisma:migrate` in development).
+- **`package.json#prisma` is deprecated** — Harmless on Prisma 6; see **Prisma 7 prep** above before upgrading.
 
 ## Tests
 
-API tests use a separate SQLite file: `prisma/test.db` (created by the test setup). Ensure no other process holds that file open while tests run.
+API tests use a separate SQLite file: `prisma/test.db`. Vitest runs **`prisma db push` once** via `vitest.global-setup.ts` (not per file), and `vitest.config.ts` sets `DATABASE_URL` for all workers.
 
 ```bash
 npm test
 ```
+
+## API errors
+
+Validation and client errors return JSON shaped like:
+
+```json
+{ "error": "Human-readable message", "code": "VALIDATION_ERROR", "issues": { "field": ["…"] } }
+```
+
+`code` and `issues` are omitted when not applicable. Success payloads are unchanged (e.g. todo DTOs, `{ "ok": true }`).
+
+## Prisma 7 prep
+
+Prisma 6 may log that `package.json#prisma` seed config is deprecated. When you upgrade to **Prisma 7**, move the seed command into `prisma.config.ts` as described in the [Prisma config docs](https://www.prisma.io/docs/orm/reference/prisma-config-reference). Until then, `npm run prisma:seed` and `package.json` → `prisma.seed` remain the supported setup.

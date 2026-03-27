@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { jsonError, parseJsonBody, parseQueryParams } from '@/lib/api-response'
+import { categoryDeleteQuerySchema, categoryPostBodySchema } from '@/lib/api-schemas'
 import { prisma } from '@/lib/prisma'
 import type { Category } from '@/types/todo'
 
@@ -13,33 +15,14 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  let body: unknown
-  try {
-    body = await request.json()
-  } catch {
-    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
-  }
+  const parsed = await parseJsonBody(request, categoryPostBodySchema)
+  if (!parsed.ok) return parsed.response
 
-  const name: string =
-    body && typeof body === 'object' && 'name' in body && typeof (body as { name: unknown }).name === 'string'
-      ? (body as { name: string }).name.trim()
-      : ''
-
-  if (!name) {
-    return NextResponse.json({ error: 'name is required' }, { status: 400 })
-  }
-
-  const rawColor =
-    body && typeof body === 'object' && 'color' in body
-      ? (body as { color: unknown }).color
-      : undefined
-  const color =
-    typeof rawColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(rawColor)
-      ? rawColor
-      : '#6b7280'
+  const { name, color } = parsed.data
+  const colorResolved = color ?? '#6b7280'
 
   const created = await prisma.category.create({
-    data: { name, color },
+    data: { name, color: colorResolved },
   })
 
   const newCategory: Category = {
@@ -52,17 +35,16 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const { searchParams } = new URL(request.url)
-  const id = Number(searchParams.get('id'))
+  const qp = parseQueryParams(request.nextUrl.searchParams, categoryDeleteQuerySchema)
+  if (!qp.ok) return qp.response
 
-  if (!id) {
-    return NextResponse.json({ error: 'id query param is required' }, { status: 400 })
+  const { id } = qp.data
+
+  const existing = await prisma.category.findUnique({ where: { id } })
+  if (!existing) {
+    return jsonError('Category not found', 404, { code: 'NOT_FOUND' })
   }
 
-  try {
-    await prisma.category.delete({ where: { id } })
-    return NextResponse.json({ message: 'Category deleted' }, { status: 200 })
-  } catch {
-    return NextResponse.json({ error: 'Category not found' }, { status: 404 })
-  }
+  await prisma.category.delete({ where: { id } })
+  return NextResponse.json({ message: 'Category deleted' }, { status: 200 })
 }

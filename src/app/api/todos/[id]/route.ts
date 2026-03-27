@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { jsonError, parseJsonBody } from '@/lib/api-response'
+import { todoPatchBodySchema } from '@/lib/api-schemas'
 import { prisma } from '@/lib/prisma'
 import { todoToDto } from '@/lib/todo-mappers'
 
@@ -14,28 +16,17 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   const { id: idParam } = await context.params
   const id = parseId(idParam)
   if (id === null) {
-    return NextResponse.json({ error: 'Invalid id' }, { status: 400 })
+    return jsonError('Invalid id', 400, { code: 'INVALID_ID' })
   }
 
-  let body: unknown
-  try {
-    body = await request.json()
-  } catch {
-    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
-  }
+  const parsed = await parseJsonBody(request, todoPatchBodySchema)
+  if (!parsed.ok) return parsed.response
 
-  if (!body || typeof body !== 'object') {
-    return NextResponse.json({ error: 'Body must be an object' }, { status: 400 })
-  }
-
-  const completed = (body as { completed?: unknown }).completed
-  if (typeof completed !== 'boolean') {
-    return NextResponse.json({ error: 'completed boolean is required' }, { status: 400 })
-  }
+  const { completed } = parsed.data
 
   const existing = await prisma.todo.findUnique({ where: { id } })
   if (!existing) {
-    return NextResponse.json({ error: 'Todo not found' }, { status: 404 })
+    return jsonError('Todo not found', 404, { code: 'NOT_FOUND' })
   }
 
   const row = await prisma.todo.update({
@@ -49,12 +40,12 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
   const { id: idParam } = await context.params
   const id = parseId(idParam)
   if (id === null) {
-    return NextResponse.json({ error: 'Invalid id' }, { status: 400 })
+    return jsonError('Invalid id', 400, { code: 'INVALID_ID' })
   }
 
   const existing = await prisma.todo.findUnique({ where: { id } })
   if (!existing) {
-    return NextResponse.json({ error: 'Todo not found' }, { status: 404 })
+    return jsonError('Todo not found', 404, { code: 'NOT_FOUND' })
   }
 
   await prisma.todo.delete({ where: { id } })
