@@ -6,14 +6,17 @@ export interface Category {
   color: string // hex colour e.g. "#3b82f6"
 }
 
+/** JSON shape returned by `/api/todos` and accepted by the client. */
 export interface Todo {
   id: number
   text: string
   completed: boolean
   priority: Priority
   categoryId: number | null
-  dueDate: string | null   // "YYYY-MM-DD"
-  createdAt: string        // ISO datetime
+  /** Calendar date in UTC (`YYYY-MM-DD`), or null. */
+  dueDate: string | null
+  /** ISO-8601 instant string. */
+  createdAt: string
 }
 
 export interface TodoStats {
