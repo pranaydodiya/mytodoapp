@@ -1,85 +1,112 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { todoRepository } from '@/lib/todoRepository'
+import type { Prisma } from '@prisma/client'
+import { prisma } from '@/lib/prisma'
+import { todoToDto } from '@/lib/todo-mappers'
 import type { Priority } from '@/types/todo'
 
-function parseBoolean(value: string | null): boolean | undefined {
-  if (value === null) return undefined
-  if (value === 'true') return true
-  if (value === 'false') return false
-  return undefined
+const PRIORITIES: Priority[] = ['low', 'medium', 'high']
+
+function isPriority(v: unknown): v is Priority {
+  return typeof v === 'string' && PRIORITIES.includes(v as Priority)
 }
 
-function parsePriority(value: string | null): Priority | undefined {
-  if (value === 'low' || value === 'medium' || value === 'high') {
-    return value
-  }
-  return undefined
+function parseDueDate(value: unknown): Date | null | undefined {
+  if (value === undefined || value === null || value === '') return undefined
+  if (typeof value !== 'string') return null
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null
+  const d = new Date(`${value}T12:00:00.000Z`)
+  return Number.isNaN(d.getTime()) ? null : d
 }
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
+  const search = searchParams.get('search')?.trim()
+  const completed = searchParams.get('completed')
+  const priority = searchParams.get('priority')
+  const categoryIdRaw = searchParams.get('categoryId')
 
-  const search = searchParams.get('search') ?? undefined
-  const completed = parseBoolean(searchParams.get('completed'))
-  const priority = parsePriority(searchParams.get('priority'))
+  const where: Prisma.TodoWhereInput = {}
 
-  const categoryParam = searchParams.get('categoryId')
-  let categoryId: number | null | undefined
-  if (categoryParam === 'null') {
-    categoryId = null
-  } else if (categoryParam !== null) {
-    const parsed = Number(categoryParam)
-    if (!Number.isNaN(parsed)) {
-      categoryId = parsed
+  if (search) {
+    where.text = { contains: search }
+  }
+  if (completed === 'true') {
+    where.completed = true
+  } else if (completed === 'false') {
+    where.completed = false
+  }
+  if (priority && isPriority(priority)) {
+    where.priority = priority
+  }
+  if (categoryIdRaw === 'null') {
+    where.categoryId = null
+  } else if (categoryIdRaw !== null && categoryIdRaw !== '') {
+    const id = Number(categoryIdRaw)
+    if (!Number.isInteger(id) || id < 1) {
+      return NextResponse.json({ error: 'Invalid categoryId' }, { status: 400 })
     }
+    where.categoryId = id
   }
 
-  const todos = todoRepository.list({
-    search,
-    completed,
-    priority,
-    categoryId,
+  const rows = await prisma.todo.findMany({
+    where,
+    orderBy: { createdAt: 'desc' },
   })
 
-  return NextResponse.json(todos, { status: 200 })
+  return NextResponse.json(rows.map(todoToDto))
 }
 
 export async function POST(request: NextRequest) {
-  const body = await request.json().catch(() => null)
+  let body: unknown
+  try {
+    body = await request.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+  }
 
-  if (!body || typeof body.text !== 'string' || !body.text.trim()) {
+  if (!body || typeof body !== 'object') {
+    return NextResponse.json({ error: 'Body must be an object' }, { status: 400 })
+  }
+
+  const b = body as Record<string, unknown>
+  const text = typeof b.text === 'string' ? b.text.trim() : ''
+  if (!text) {
     return NextResponse.json({ error: 'text is required' }, { status: 400 })
   }
 
-  const text = body.text.trim()
+  const priority: Priority = isPriority(b.priority) ? b.priority : 'medium'
 
-  const priority = parsePriority(body.priority ?? null) ?? 'medium'
-
-  let categoryId: number | null | undefined
-  if (body.categoryId === null) {
+  let categoryId: number | null = null
+  if (b.categoryId === null) {
     categoryId = null
-  } else if (typeof body.categoryId === 'number') {
-    categoryId = body.categoryId
+  } else if (b.categoryId === undefined) {
+    categoryId = null
+  } else if (typeof b.categoryId === 'number' && Number.isInteger(b.categoryId)) {
+    categoryId = b.categoryId
+  } else {
+    return NextResponse.json({ error: 'categoryId must be a number or null' }, { status: 400 })
   }
 
-  let dueDate: string | null | undefined
-  if (body.dueDate === null) {
-    dueDate = null
-  } else if (typeof body.dueDate === 'string' && body.dueDate.trim()) {
-    const d = new Date(body.dueDate)
-    if (Number.isNaN(d.getTime())) {
-      return NextResponse.json({ error: 'dueDate must be a valid date' }, { status: 400 })
+  if (categoryId !== null) {
+    const cat = await prisma.category.findUnique({ where: { id: categoryId } })
+    if (!cat) {
+      return NextResponse.json({ error: 'Category not found' }, { status: 400 })
     }
-    dueDate = body.dueDate
   }
 
-  const todo = todoRepository.create({
-    text,
-    priority,
-    categoryId,
-    dueDate,
+  const dueParsed = parseDueDate(b.dueDate)
+  if (dueParsed === null) {
+    return NextResponse.json({ error: 'dueDate must be YYYY-MM-DD' }, { status: 400 })
+  }
+
+  const row = await prisma.todo.create({
+    data: {
+      text,
+      priority,
+      categoryId,
+      ...(dueParsed !== undefined ? { dueDate: dueParsed } : {}),
+    },
   })
 
-  return NextResponse.json(todo, { status: 201 })
+  return NextResponse.json(todoToDto(row), { status: 201 })
 }
-

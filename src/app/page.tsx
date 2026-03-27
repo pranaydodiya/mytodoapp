@@ -29,7 +29,8 @@ export default function Home() {
 
   const [newText, setNewText] = useState('')
   const [newPriority, setNewPriority] = useState<Priority>('medium')
-  const [newCategoryId, setNewCategoryId] = useState<number | null>('' as unknown as null)
+  /** `''` = “(none)”; `null` = explicit uncategorized; otherwise a category id. */
+  const [newCategoryId, setNewCategoryId] = useState<number | null | ''>('')
   const [newDueDate, setNewDueDate] = useState('')
 
   const hasTodos = useMemo(() => todos.length > 0, [todos])
@@ -92,6 +93,9 @@ export default function Home() {
 
     try {
       setError(null)
+      const categoryIdForApi: number | null =
+        newCategoryId === '' ? null : newCategoryId
+
       const body: {
         text: string
         priority: Priority
@@ -100,7 +104,7 @@ export default function Home() {
       } = {
         text,
         priority: newPriority,
-        categoryId: newCategoryId ?? null,
+        categoryId: categoryIdForApi,
       }
       if (newDueDate) {
         body.dueDate = newDueDate
@@ -120,7 +124,7 @@ export default function Home() {
       setNewText('')
       setNewDueDate('')
       setNewPriority('medium')
-      setNewCategoryId('' as unknown as null)
+      setNewCategoryId('')
       await refreshAll(filters)
     } catch (err) {
       console.error(err)
@@ -280,10 +284,16 @@ export default function Home() {
                 <label className="flex items-center gap-2">
                   <span className="text-xs font-medium">Category</span>
                   <select
-                    value={newCategoryId ?? ''}
+                    value={
+                      newCategoryId === ''
+                        ? ''
+                        : newCategoryId === null
+                          ? 'null'
+                          : String(newCategoryId)
+                    }
                     onChange={e => {
                       const value = e.target.value
-                      if (value === '') setNewCategoryId('' as unknown as null)
+                      if (value === '') setNewCategoryId('')
                       else if (value === 'null') setNewCategoryId(null)
                       else setNewCategoryId(Number(value))
                     }}
