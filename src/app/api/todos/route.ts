@@ -47,7 +47,31 @@ export async function GET(request: NextRequest) {
               : sort === 'dueDate_desc'
                 ? [{ dueDate: 'desc' }, { createdAt: 'desc' }]
                 : { createdAt: 'desc' },
-      })
+// Fix: Consider database-level sorting for priority for better performance with large datasets.
+  // Example (conceptual, requires schema/DB changes or raw query):
+  // In Prisma schema:
+  // enum Priority {
+  //   high @map(0)
+  //   medium @map(1)
+  //   low @map(2)
+  // }
+  // Or:
+  // model Todo {
+  //   // ...
+  //   priority      Priority
+  //   priorityRank  Int @default(1) // Add a numeric rank
+  // }
+  //
+  // Then in route.ts:
+  // const rows = await prisma.todo.findMany({
+  //   where,
+  //   orderBy:
+  //     sort === 'priority_desc'
+  //       ? { priorityRank: 'asc' } // Assuming 0=high, 1=medium, 2=low
+  //       : sort === 'priority_asc'
+  //         ? { priorityRank: 'desc' }
+  //         : // ... other sorts
+  // });
 
   return NextResponse.json(rows.map(todoToDto))
 }
