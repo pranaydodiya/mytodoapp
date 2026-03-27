@@ -36,7 +36,36 @@ export async function GET(request: NextRequest) {
   const prioritySort = sort === 'priority_desc' || sort === 'priority_asc'
 
   const rows = prioritySort
+// Current (verbose):
+  const prioritySort = sort === 'priority_desc' || sort === 'priority_asc'
+
+  const rows = prioritySort
     ? sortTodoRows(await prisma.todo.findMany({ where }), sort)
+    : await prisma.todo.findMany({
+        where,
+        orderBy:
+          sort === 'createdAt_asc'
+            ? { createdAt: 'asc' }
+            : sort === 'dueDate_asc'
+              ? [{ dueDate: 'asc' }, { createdAt: 'desc' }]
+              : sort === 'dueDate_desc'
+                ? [{ dueDate: 'desc' }, { createdAt: 'desc' }]
+                : { createdAt: 'desc' },
+      })
+
+  // ✨ Compact/optimized:
+  // Consider mapping priority to an integer in the database or using Prisma's `orderByRaw`
+  // if the database supports custom sorting logic for enums or if a custom ranking
+  // can be applied at the DB level.
+  // Example (conceptual, requires DB schema change or raw query):
+  // If priority was an integer: orderBy: { priority: sort === 'priority_asc' ? 'asc' : 'desc' }
+  // If using orderByRaw (DB specific, e.g., PostgreSQL):
+  // orderBy: Prisma.sql`CASE priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 END ${sort === 'priority_asc' ? Prisma.sql`ASC` : Prisma.sql`DESC`}`
+
+  // If in-memory sort is unavoidable for custom priority ranking, ensure `where` clauses
+  // are as restrictive as possible to minimize the number of rows fetched.
+  // For now, no direct compact rewrite without changing the database schema or using raw queries.
+  // The current approach is acceptable for small to medium datasets.
     : await prisma.todo.findMany({
         where,
         orderBy:
