@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Category, Priority, Todo, TodoStats } from '@/types/todo'
 
 type FilterState = {
@@ -25,7 +25,14 @@ export default function Home() {
   })
 
   const [loading, setLoading] = useState<LoadingState>('idle')
+  const [listLoading, setListLoading] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [todoBusyId, setTodoBusyId] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  const filtersRef = useRef(filters)
+  filtersRef.current = filters
+  const skipInitialSearchEffect = useRef(true)
 
   const [newText, setNewText] = useState('')
   const [newPriority, setNewPriority] = useState<Priority>('medium')
@@ -49,23 +56,31 @@ export default function Home() {
     setStats(data)
   }
 
-  async function fetchTodos(currentFilters: FilterState) {
-    const params = new URLSearchParams()
-    if (currentFilters.search.trim()) params.set('search', currentFilters.search.trim())
-    if (currentFilters.completed === 'completed') params.set('completed', 'true')
-    if (currentFilters.completed === 'pending') params.set('completed', 'false')
-    if (currentFilters.priority !== 'all') params.set('priority', currentFilters.priority)
-    if (currentFilters.categoryId === null) {
-      params.set('categoryId', 'null')
-    } else if (currentFilters.categoryId !== 'all') {
-      params.set('categoryId', String(currentFilters.categoryId))
-    }
+  async function fetchTodos(
+    currentFilters: FilterState,
+    opts?: { showListSpinner?: boolean },
+  ) {
+    if (opts?.showListSpinner) setListLoading(true)
+    try {
+      const params = new URLSearchParams()
+      if (currentFilters.search.trim()) params.set('search', currentFilters.search.trim())
+      if (currentFilters.completed === 'completed') params.set('completed', 'true')
+      if (currentFilters.completed === 'pending') params.set('completed', 'false')
+      if (currentFilters.priority !== 'all') params.set('priority', currentFilters.priority)
+      if (currentFilters.categoryId === null) {
+        params.set('categoryId', 'null')
+      } else if (currentFilters.categoryId !== 'all') {
+        params.set('categoryId', String(currentFilters.categoryId))
+      }
 
-    const query = params.toString()
-    const res = await fetch(`/api/todos${query ? `?${query}` : ''}`)
-    if (!res.ok) throw new Error('Failed to load todos')
-    const data: Todo[] = await res.json()
-    setTodos(data)
+      const query = params.toString()
+      const res = await fetch(`/api/todos${query ? `?${query}` : ''}`)
+      if (!res.ok) throw new Error('Failed to load todos')
+      const data: Todo[] = await res.json()
+      setTodos(data)
+    } finally {
+      if (opts?.showListSpinner) setListLoading(false)
+    }
   }
 
   async function refreshAll(currentFilters: FilterState = filters) {
@@ -86,6 +101,21 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  useEffect(() => {
+    if (skipInitialSearchEffect.current) {
+      skipInitialSearchEffect.current = false
+      return
+    }
+    const id = window.setTimeout(() => {
+      void fetchTodos(filtersRef.current, { showListSpinner: true }).catch(err => {
+        console.error(err)
+        setError(err instanceof Error ? err.message : 'Failed to load todos')
+      })
+    }, 300)
+    return () => window.clearTimeout(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounce only when search string changes
+  }, [filters.search])
+
   async function handleCreateTodo(e: React.FormEvent) {
     e.preventDefault()
     const text = newText.trim()
@@ -93,6 +123,7 @@ export default function Home() {
 
     try {
       setError(null)
+      setCreating(true)
       const categoryIdForApi: number | null =
         newCategoryId === '' ? null : newCategoryId
 
@@ -129,12 +160,15 @@ export default function Home() {
     } catch (err) {
       console.error(err)
       setError(err instanceof Error ? err.message : 'Failed to create todo')
+    } finally {
+      setCreating(false)
     }
   }
 
   async function toggleTodo(todo: Todo) {
     try {
       setError(null)
+      setTodoBusyId(todo.id)
       const res = await fetch(`/api/todos/${todo.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -148,12 +182,15 @@ export default function Home() {
     } catch (err) {
       console.error(err)
       setError(err instanceof Error ? err.message : 'Failed to update todo')
+    } finally {
+      setTodoBusyId(null)
     }
   }
 
   async function deleteTodo(id: number) {
     try {
       setError(null)
+      setTodoBusyId(id)
       const res = await fetch(`/api/todos/${id}`, { method: 'DELETE' })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
@@ -163,13 +200,15 @@ export default function Home() {
     } catch (err) {
       console.error(err)
       setError(err instanceof Error ? err.message : 'Failed to delete todo')
+    } finally {
+      setTodoBusyId(null)
     }
   }
 
   function handleFilterChange(partial: Partial<FilterState>) {
     const nextFilters = { ...filters, ...partial }
     setFilters(nextFilters)
-    void fetchTodos(nextFilters).catch(err => {
+    void fetchTodos(nextFilters, { showListSpinner: true }).catch(err => {
       console.error(err)
       setError(err instanceof Error ? err.message : 'Failed to load todos')
     })
@@ -255,6 +294,7 @@ export default function Home() {
               <div className="flex flex-col gap-3 md:flex-row">
                 <input
                   type="text"
+                  data-testid="task-title-input"
                   value={newText}
                   onChange={e => setNewText(e.target.value)}
                   placeholder="What do you need to get done?"
@@ -262,10 +302,12 @@ export default function Home() {
                 />
                 <button
                   type="submit"
+                  data-testid="add-task-button"
                   className="shrink-0 rounded-xl bg-zinc-900 px-4 py-2 text-sm font-medium text-zinc-50 shadow-sm transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
-                  disabled={!newText.trim()}
+                  disabled={creating || !newText.trim()}
+                  aria-busy={creating}
                 >
-                  Add task
+                  {creating ? 'Adding…' : 'Add task'}
                 </button>
               </div>
               <div className="flex flex-wrap gap-3 text-xs text-zinc-600 dark:text-zinc-400">
@@ -375,16 +417,34 @@ export default function Home() {
                 </select>
                 <input
                   type="search"
+                  data-testid="task-search-input"
                   value={filters.search}
-                  onChange={e => handleFilterChange({ search: e.target.value })}
+                  onChange={e =>
+                    setFilters(prev => ({ ...prev, search: e.target.value }))
+                  }
                   placeholder="Search tasks"
                   className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs outline-none ring-0 transition focus:border-zinc-400 focus:ring-2 focus:ring-zinc-200 dark:border-zinc-700 dark:bg-zinc-950 dark:focus:border-zinc-500 dark:focus:ring-zinc-800 md:w-48"
+                  aria-busy={listLoading}
                 />
               </div>
             </div>
 
+            {listLoading && (
+              <p
+                data-testid="list-updating-indicator"
+                className="text-xs text-zinc-500 dark:text-zinc-400"
+                aria-live="polite"
+              >
+                Updating list…
+              </p>
+            )}
+
             {error && (
-              <p className="rounded-lg bg-red-100 px-3 py-2 text-xs text-red-700 dark:bg-red-950 dark:text-red-300">
+              <p
+                data-testid="error-banner"
+                className="rounded-lg bg-red-100 px-3 py-2 text-xs text-red-700 dark:bg-red-950 dark:text-red-300"
+                role="alert"
+              >
                 {error}
               </p>
             )}
@@ -398,7 +458,7 @@ export default function Home() {
                 No tasks yet. Create your first one above.
               </p>
             ) : (
-              <ul className="space-y-2">
+              <ul data-testid="task-list" className="space-y-2">
                 {todos.map(todo => (
                   <li
                     key={todo.id}
@@ -407,7 +467,9 @@ export default function Home() {
                     <button
                       type="button"
                       onClick={() => void toggleTodo(todo)}
-                      className="flex flex-1 items-start gap-3 text-left"
+                      disabled={todoBusyId === todo.id}
+                      aria-busy={todoBusyId === todo.id}
+                      className="flex flex-1 items-start gap-3 text-left disabled:cursor-wait disabled:opacity-70"
                     >
                       <span
                         className={`mt-1 inline-flex h-4 w-4 items-center justify-center rounded-full border text-[10px] ${
@@ -468,7 +530,8 @@ export default function Home() {
                     <button
                       type="button"
                       onClick={() => void deleteTodo(todo.id)}
-                      className="ml-2 rounded-full px-2 py-1 text-xs text-zinc-400 transition hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950"
+                      disabled={todoBusyId === todo.id}
+                      className="ml-2 rounded-full px-2 py-1 text-xs text-zinc-400 transition hover:bg-red-50 hover:text-red-600 disabled:cursor-wait disabled:opacity-70 dark:hover:bg-red-950"
                     >
                       Delete
                     </button>

@@ -52,6 +52,8 @@ Open [http://localhost:3000](http://localhost:3000).
 | `npm test` | Vitest (API route tests) |
 | `npm run test:watch` | Vitest watch mode |
 | `npm run test:coverage` | Coverage report |
+| `npm run test:e2e` | Playwright E2E (`prisma/e2e.db`, Chromium) |
+| `npm run test:e2e:ui` | Playwright UI mode |
 | `npm run prisma:migrate` | Create/apply dev migrations (`prisma migrate dev`) |
 | `npm run prisma:studio` | Prisma Studio |
 | `npm run prisma:seed` | Seed categories |
@@ -92,6 +94,12 @@ API tests use a separate SQLite file: `prisma/test.db`. Vitest runs **`prisma db
 
 ```bash
 npm test
+```
+
+First-time Playwright browsers:
+
+```bash
+npx playwright install chromium
 ```
 
 ## API errors
