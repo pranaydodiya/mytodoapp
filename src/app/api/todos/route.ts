@@ -4,14 +4,21 @@ import { jsonError, parseJsonBody, parseQueryParams } from '@/lib/api-response'
 import { todosGetQuerySchema, todosPostBodySchema } from '@/lib/api-schemas'
 import { prisma } from '@/lib/prisma'
 import { todoToDto } from '@/lib/todo-mappers'
+import { utcDayBounds } from '@/lib/todo-due-bounds'
 import { sortTodoRows, type TodoSort } from '@/lib/todo-sort'
 
 export async function GET(request: NextRequest) {
   const query = parseQueryParams(request.nextUrl.searchParams, todosGetQuerySchema)
   if (!query.ok) return query.response
 
-  const { search, completed, priority, categoryId: categoryIdRaw, sort: sortRaw } =
-    query.data
+  const {
+    search,
+    completed,
+    priority,
+    categoryId: categoryIdRaw,
+    sort: sortRaw,
+    due: duePreset,
+  } = query.data
   const sort: TodoSort = sortRaw ?? 'createdAt_desc'
 
   const where: Prisma.TodoWhereInput = {}
@@ -31,6 +38,17 @@ export async function GET(request: NextRequest) {
     where.categoryId = null
   } else if (categoryIdRaw !== undefined) {
     where.categoryId = Number(categoryIdRaw)
+  }
+
+  if (duePreset === 'today') {
+    const { start, end } = utcDayBounds()
+    where.dueDate = { gte: start, lte: end }
+  } else if (duePreset === 'overdue') {
+    const { start } = utcDayBounds()
+    where.completed = false
+    where.dueDate = { not: null, lt: start }
+  } else if (duePreset === 'no_due') {
+    where.dueDate = null
   }
 
   const prioritySort = sort === 'priority_desc' || sort === 'priority_asc'

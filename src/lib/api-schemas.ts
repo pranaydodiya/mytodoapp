@@ -11,12 +11,15 @@ export const todoSortSchema = z.enum([
   'priority_asc',
 ])
 
+export const todosDuePresetSchema = z.enum(['today', 'overdue', 'no_due'])
+
 export const todosGetQuerySchema = z.object({
   search: z.string().optional(),
   completed: z.enum(['true', 'false']).optional(),
   priority: prioritySchema.optional(),
   categoryId: z.union([z.literal('null'), z.string().regex(/^\d+$/)]).optional(),
   sort: todoSortSchema.optional(),
+  due: todosDuePresetSchema.optional(),
 })
 
 export const todosPostBodySchema = z.object({
