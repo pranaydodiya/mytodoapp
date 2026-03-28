@@ -1,36 +1,119 @@
-pranay dodiya This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Todo app
 
-## Getting Started
+Next.js (App Router) todo list with categories, priorities, due dates, filters, and stats. Data is stored in **SQLite** via **Prisma**.
 
-First, run the development server:
+## Prerequisites
+
+
+
+- Node.js 20+
+- npm
+Made By Pranay Dodiya
+## Setup
+
+1. Install dependencies:
+
+   ```bash
+   npm install
+   ```
+
+2. Create `.env` in the project root (or use `.env.local` and copy `DATABASE_URL` into `.env` for Prisma CLI):
+
+   ```bash
+   DATABASE_URL="file:./prisma/dev.db"
+   ```
+
+3. Apply migrations and generate the client:
+
+   ```bash
+   npx prisma migrate deploy
+   npx prisma generate
+   ```
+
+4. Seed default categories (optional but recommended for a good first-run UI):
+
+   ```bash
+   npm run prisma:seed
+   ```
+
+## Development
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Scripts
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Command | Purpose |
+|--------|---------|
+| `npm run dev` | Next.js dev server |
+| `npm run build` / `npm start` | Production build and server |
+| `npm run lint` | ESLint |
+| `npm test` | Vitest (API route tests) |
+| `npm run test:watch` | Vitest watch mode |
+| `npm run test:coverage` | Coverage report |
+| `npm run test:e2e` | Playwright E2E (`prisma/e2e.db`, Chromium) |
+| `npm run test:e2e:ui` | Playwright UI mode |
+| `npm run prisma:migrate` | Create/apply dev migrations (`prisma migrate dev`) |
+| `npm run prisma:studio` | Prisma Studio |
+| `npm run prisma:seed` | Seed categories |
 
-## Learn More
+Use `npx prisma …` from the project root so the **local** Prisma version matches `package.json` (avoid a globally installed Prisma 7+ CLI).
 
-To learn more about Next.js, take a look at the following resources:
+## API overview
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### `GET/POST /api/todos`
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- **GET** query params: `search`, `completed` (`true` \| `false`), `priority` (`low` \| `medium` \| `high`), `categoryId` (number or `null` for uncategorized).
+- **POST** JSON: `{ "text": string, "priority"?: …, "categoryId"?: number \| null, "dueDate"?: "YYYY-MM-DD" }`.
 
-## Deploy on Vercel
+### `PATCH/DELETE /api/todos/:id`
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- **PATCH** JSON: `{ "completed": boolean }`.
+- **DELETE** removes the todo.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### `GET/POST/DELETE /api/categories`
+
+- **POST** JSON: `{ "name": string, "color"?: "#RRGGBB" }`.
+- **DELETE** `?id=<number>`. Related todos get `categoryId` set to `null` (FK `onDelete: SetNull`).
+
+### `GET /api/stats`
+
+Returns `{ total, completed, pending, overdue, byPriority, byCategory }`.
+
+## Troubleshooting
+
+- **`Environment variable not found: DATABASE_URL`** — Add `DATABASE_URL` to `.env` (Prisma CLI reads `.env` by default; Next.js also loads `.env.local`).
+- **`@prisma/client` did not initialize** — Run `npx prisma generate` after schema changes.
+- **Schema out of sync** — Run `npx prisma migrate deploy` (or `npm run prisma:migrate` in development).
+- **`package.json#prisma` is deprecated** — Harmless on Prisma 6; see **Prisma 7 prep** above before upgrading.
+
+## Tests
+
+API tests use a separate SQLite file: `prisma/test.db`. Vitest runs **`prisma db push` once** via `vitest.global-setup.ts` (not per file), and `vitest.config.ts` sets `DATABASE_URL` for all workers.
+
+```bash
+npm test
+```
+
+First-time Playwright browsers:
+
+```bash
+npx playwright install chromium
+```
+
+## API errors
+
+Validation and client errors return JSON shaped like:
+
+```json
+{ "error": "Human-readable message", "code": "VALIDATION_ERROR", "issues": { "field": ["…"] } }
+```
+
+`code` and `issues` are omitted when not applicable. Success payloads are unchanged (e.g. todo DTOs, `{ "ok": true }`).
+
+## Prisma 7 prep
+
+Prisma 6 may log that `package.json#prisma` seed config is deprecated. When you upgrade to **Prisma 7**, move the seed command into `prisma.config.ts` as described in the [Prisma config docs](https://www.prisma.io/docs/orm/reference/prisma-config-reference). Until then, `npm run prisma:seed` and `package.json` → `prisma.seed` remain the supported setup.
