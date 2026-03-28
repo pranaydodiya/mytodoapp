@@ -1,76 +1,75 @@
-import { NextRequest, NextResponse } from 'next/server';
-import connectDB from '@/lib/mongodb';
-import Todo from '@/models/Todo';
+import type { Prisma } from '@prisma/client'
+import { NextRequest, NextResponse } from 'next/server'
+import { jsonError, parseJsonBody } from '@/lib/api-response'
+import { todoPatchBodySchema } from '@/lib/api-schemas'
+import { prisma } from '@/lib/prisma'
+import { todoToDto } from '@/lib/todo-mappers'
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  try {
-    await connectDB();
-    const todo = await Todo.findById(params.id);
-    if (!todo) {
-      return NextResponse.json(
-        { success: false, error: 'Todo not found' },
-        { status: 404 }
-      );
-    }
-    return NextResponse.json({ success: true, data: todo });
-  } catch (error) {
-    console.error('GET /api/todos/[id] error:', error);
-    return NextResponse.json(
-      { success: false, error: 'Failed to fetch todo' },
-      { status: 500 }
-    );
-  }
+type RouteContext = { params: Promise<{ id: string }> }
+
+function parseId(raw: string): number | null {
+  const n = Number(raw)
+  if (!Number.isInteger(n) || n < 1) return null
+  return n
 }
 
-export async function PUT(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  try {
-    await connectDB();
-    const body = await request.json();
-    const todo = await Todo.findByIdAndUpdate(params.id, body, {
-      new: true,
-      runValidators: true,
-    });
-    if (!todo) {
-      return NextResponse.json(
-        { success: false, error: 'Todo not found' },
-        { status: 404 }
-      );
-    }
-    return NextResponse.json({ success: true, data: todo });
-  } catch (error) {
-    console.error('PUT /api/todos/[id] error:', error);
-    return NextResponse.json(
-      { success: false, error: 'Failed to update todo' },
-      { status: 500 }
-    );
+export async function PATCH(request: NextRequest, context: RouteContext) {
+  const { id: idParam } = await context.params
+  const id = parseId(idParam)
+  if (id === null) {
+    return jsonError('Invalid id', 400, { code: 'INVALID_ID' })
   }
+
+  const parsed = await parseJsonBody(request, todoPatchBodySchema)
+  if (!parsed.ok) return parsed.response
+
+  const body = parsed.data
+
+  const existing = await prisma.todo.findUnique({ where: { id } })
+  if (!existing) {
+    return jsonError('Todo not found', 404, { code: 'NOT_FOUND' })
+  }
+
+  if (body.categoryId !== undefined && body.categoryId !== null) {
+    const cat = await prisma.category.findUnique({ where: { id: body.categoryId } })
+    if (!cat) {
+      return jsonError('Category not found', 400, { code: 'CATEGORY_NOT_FOUND' })
+    }
+  }
+
+  const data: Prisma.TodoUpdateInput = {}
+  if (body.completed !== undefined) data.completed = body.completed
+  if (body.text !== undefined) data.text = body.text
+  if (body.priority !== undefined) data.priority = body.priority
+  if (body.categoryId !== undefined) {
+    data.categoryId = body.categoryId
+  }
+  if (body.dueDate !== undefined) {
+    data.dueDate =
+      body.dueDate === null
+        ? null
+        : new Date(`${body.dueDate}T12:00:00.000Z`)
+  }
+
+  const row = await prisma.todo.update({
+    where: { id },
+    data,
+  })
+  return NextResponse.json(todoToDto(row))
 }
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  try {
-    await connectDB();
-    const todo = await Todo.findByIdAndDelete(params.id);
-    if (!todo) {
-      return NextResponse.json(
-        { success: false, error: 'Todo not found' },
-        { status: 404 }
-      );
-    }
-    return NextResponse.json({ success: true, message: 'Todo deleted' });
-  } catch (error) {
-    console.error('DELETE /api/todos/[id] error:', error);
-    return NextResponse.json(
-      { success: false, error: 'Failed to delete todo' },
-      { status: 500 }
-    );
+export async function DELETE(_request: NextRequest, context: RouteContext) {
+  const { id: idParam } = await context.params
+  const id = parseId(idParam)
+  if (id === null) {
+    return jsonError('Invalid id', 400, { code: 'INVALID_ID' })
   }
+
+  const existing = await prisma.todo.findUnique({ where: { id } })
+  if (!existing) {
+    return jsonError('Todo not found', 404, { code: 'NOT_FOUND' })
+  }
+
+  await prisma.todo.delete({ where: { id } })
+  return NextResponse.json({ ok: true })
 }

@@ -1,183 +1,156 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { todos } from '@/lib/store'
-import { Priority, Todo } from '@/types/todo'
-
-const VALID_PRIORITIES: Priority[] = ['low', 'medium', 'high']
-
-// GET /api/todos — return all todos, optional ?priority=&categoryId=&completed= filters
-export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url)
-  const priorityFilter = searchParams.get('priority') as Priority | null
-  const categoryIdFilter = searchParams.get('categoryId')
-  const completedFilter = searchParams.get('completed')
-
-  let result = [...todos]
-
-  if (priorityFilter && VALID_PRIORITIES.includes(priorityFilter)) {
-    result = result.filter(t => t.priority === priorityFilter)
-  }
-  if (categoryIdFilter !== null) {
-    const cid = categoryIdFilter === 'null' ? null : Number(categoryIdFilter)
-    result = result.filter(t => t.categoryId === cid)
-  }
-  if (completedFilter !== null) {
-    const done = completedFilter === 'true'
-    result = result.filter(t => t.completed === done)
-  }
-
-  return NextResponse.json(result, { status: 200 })
-}
-
-// POST /api/todos — create a new todo
-export async function POST(request: NextRequest) {
-  const body = await request.json()
-  const text: string = body?.text?.trim()
-
-  if (!text) {
-    return NextResponse.json({ error: 'text is required' }, { status: 400 })
-  }
-
-  const priority: Priority = VALID_PRIORITIES.includes(body.priority)
-    ? body.priority
-    : 'medium'
-
-  const dueDate: string | null =
-    typeof body.dueDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.dueDate)
-      ? body.dueDate
-      : null
-
-  const newTodo: Todo = {
-    id: Date.now(),
-    text,
-    completed: false,
-    priority,
-    categoryId: body.categoryId != null ? Number(body.categoryId) : null,
-    dueDate,
-    createdAt: new Date().toISOString(),
-  }
-
-  todos.push(newTodo)
-  return NextResponse.json(newTodo, { status: 201 })
-}
-
-// PUT /api/todos — update a todo
-export async function PUT(request: NextRequest) {
-  const body = await request.json()
-  const { id, text, completed, priority, categoryId, dueDate } = body
-
-  if (!id) {
-    return NextResponse.json({ error: 'id is required' }, { status: 400 })
-  }
-
-  const index = todos.findIndex(t => t.id === id)
-  if (index === -1) {
-    return NextResponse.json({ error: 'Todo not found' }, { status: 404 })
-  }
-
-  todos[index] = {
-    ...todos[index],
-    ...(text !== undefined && { text: String(text).trim() }),
-    ...(completed !== undefined && { completed: Boolean(completed) }),
-    ...(priority !== undefined && VALID_PRIORITIES.includes(priority) && { priority }),
-    ...(categoryId !== undefined && { categoryId: categoryId === null ? null : Number(categoryId) }),
-    ...(dueDate !== undefined && {
-      dueDate: dueDate === null ? null
-        : /^\d{4}-\d{2}-\d{2}$/.test(dueDate) ? dueDate : todos[index].dueDate,
-    }),
-  }
-
-  return NextResponse.json(todos[index], { status: 200 })
-}
-
-// DELETE /api/todos — delete a todo by id
-export async function DELETE(request: NextRequest) {
-  const { searchParams } = new URL(request.url)
-  const id = Number(searchParams.get('id'))
-
-  if (!id) {
-    return NextResponse.json({ error: 'id query param is required' }, { status: 400 })
-  }
-
-  const index = todos.findIndex(t => t.id === id)
-  if (index === -1) {
-    return NextResponse.json({ error: 'Todo not found' }, { status: 404 })
-  }
-
-  todos.splice(index, 1)
-  return NextResponse.json({ message: 'Todo deleted' }, { status: 200 })
-}
+import type { Prisma } from '@prisma/client'
+import { jsonError, parseJsonBody, parseQueryParams } from '@/lib/api-response'
+import { todosGetQuerySchema, todosPostBodySchema } from '@/lib/api-schemas'
+import { prisma } from '@/lib/prisma'
+import { todoToDto } from '@/lib/todo-mappers'
+import { sortTodoRows, type TodoSort } from '@/lib/todo-sort'
 
 export async function GET(request: NextRequest) {
-  try {
-    await connectDB();
-    const { searchParams } = new URL(request.url);
-    const filter = searchParams.get('filter') || 'all';
-    const priority = searchParams.get('priority') || 'all';
-    const category = searchParams.get('category') || 'all';
-    const search = searchParams.get('search') || '';
+  const query = parseQueryParams(request.nextUrl.searchParams, todosGetQuerySchema)
+  if (!query.ok) return query.response
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const query: any = {};
+  const { search, completed, priority, categoryId: categoryIdRaw, sort: sortRaw } =
+    query.data
+  const sort: TodoSort = sortRaw ?? 'createdAt_desc'
 
-    if (filter === 'active') query.completed = false;
-    if (filter === 'completed') query.completed = true;
-    if (priority !== 'all') query.priority = priority;
-    if (category !== 'all') query.category = category;
-    if (search) {
-      query.$or = [
-        { title: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } },
-        { tags: { $in: [new RegExp(search, 'i')] } },
-      ];
-    }
+  const where: Prisma.TodoWhereInput = {}
 
-    const todos = await Todo.find(query).sort({ createdAt: -1 });
-    return NextResponse.json({ success: true, data: todos });
-  } catch (error) {
-    console.error('GET /api/todos error:', error);
-    return NextResponse.json(
-      { success: false, error: 'Failed to fetch todos' },
-      { status: 500 }
-    );
+  if (search) {
+    where.text = { contains: search }
   }
+  if (completed === 'true') {
+    where.completed = true
+  } else if (completed === 'false') {
+    where.completed = false
+  }
+  if (priority) {
+    where.priority = priority
+  }
+  if (categoryIdRaw === 'null') {
+    where.categoryId = null
+  } else if (categoryIdRaw !== undefined) {
+    where.categoryId = Number(categoryIdRaw)
+  }
+
+  const prioritySort = sort === 'priority_desc' || sort === 'priority_asc'
+
+  const rows = prioritySort
+// Current (verbose):
+  const prioritySort = sort === 'priority_desc' || sort === 'priority_asc'
+
+  const rows = prioritySort
+    ? sortTodoRows(await prisma.todo.findMany({ where }), sort)
+    : await prisma.todo.findMany({
+        where,
+        orderBy:
+          sort === 'createdAt_asc'
+            ? { createdAt: 'asc' }
+            : sort === 'dueDate_asc'
+              ? [{ dueDate: 'asc' }, { createdAt: 'desc' }]
+              : sort === 'dueDate_desc'
+                ? [{ dueDate: 'desc' }, { createdAt: 'desc' }]
+// Current (verbose):
+  const rows = prioritySort
+    ? sortTodoRows(await prisma.todo.findMany({ where }), sort)
+    : await prisma.todo.findMany({
+        where,
+        orderBy:
+          sort === 'createdAt_asc'
+            ? { createdAt: 'asc' }
+            : sort === 'dueDate_asc'
+              ? [{ dueDate: 'asc' }, { createdAt: 'desc' }]
+              : sort === 'dueDate_desc'
+                ? [{ dueDate: 'desc' }, { createdAt: 'desc' }]
+                : { createdAt: 'desc' },
+      })
+
+  // ✨ Compact/optimized:
+  let orderBy: Prisma.TodoOrderByWithRelationInput | Prisma.TodoOrderByWithRelationInput[] = {
+
+## 🐛 Bugs
+
+### 🔵 Low
+- **`src/app/api/todos/route.ts:36-50`** — Potential performance bottleneck for large datasets
+  The API performs client-side sorting for `priority_desc` and `priority_asc` by fetching all todos and then sorting them in memory. For a small number of todos, this is acceptable, but for very large datasets, it would be more efficient to leverage the database's sorting capabilities. While Prisma's `orderBy` might not directly support custom enum order, it could be achieved with a raw query or by adding a numeric priority field to the database.
+      })
+
+  // ✨ Compact/optimized:
+  // Consider mapping priority to an integer in the database or using Prisma's `orderByRaw`
+  // if the database supports custom sorting logic for enums or if a custom ranking
+  // can be applied at the DB level.
+  // Example (conceptual, requires DB schema change or raw query):
+  // If priority was an integer: orderBy: { priority: sort === 'priority_asc' ? 'asc' : 'desc' }
+  // If using orderByRaw (DB specific, e.g., PostgreSQL):
+  // orderBy: Prisma.sql`CASE priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 END ${sort === 'priority_asc' ? Prisma.sql`ASC` : Prisma.sql`DESC`}`
+
+  // If in-memory sort is unavoidable for custom priority ranking, ensure `where` clauses
+  // are as restrictive as possible to minimize the number of rows fetched.
+  // For now, no direct compact rewrite without changing the database schema or using raw queries.
+  // The current approach is acceptable for small to medium datasets.
+    : await prisma.todo.findMany({
+        where,
+        orderBy:
+          sort === 'createdAt_asc'
+            ? { createdAt: 'asc' }
+            : sort === 'dueDate_asc'
+              ? [{ dueDate: 'asc' }, { createdAt: 'desc' }]
+              : sort === 'dueDate_desc'
+                ? [{ dueDate: 'desc' }, { createdAt: 'desc' }]
+                : { createdAt: 'desc' },
+// Fix: Consider database-level sorting for priority for better performance with large datasets.
+  // Example (conceptual, requires schema/DB changes or raw query):
+  // In Prisma schema:
+  // enum Priority {
+  //   high @map(0)
+  //   medium @map(1)
+  //   low @map(2)
+  // }
+  // Or:
+  // model Todo {
+  //   // ...
+  //   priority      Priority
+  //   priorityRank  Int @default(1) // Add a numeric rank
+  // }
+  //
+  // Then in route.ts:
+  // const rows = await prisma.todo.findMany({
+  //   where,
+  //   orderBy:
+  //     sort === 'priority_desc'
+  //       ? { priorityRank: 'asc' } // Assuming 0=high, 1=medium, 2=low
+  //       : sort === 'priority_asc'
+  //         ? { priorityRank: 'desc' }
+  //         : // ... other sorts
+  // });
+
+  return NextResponse.json(rows.map(todoToDto))
 }
 
 export async function POST(request: NextRequest) {
-  try {
-    await connectDB();
-    const body = await request.json();
-    const todo = await Todo.create(body);
-    return NextResponse.json({ success: true, data: todo }, { status: 201 });
-  } catch (error) {
-    console.error('POST /api/todos error:', error);
-    return NextResponse.json(
-      { success: false, error: 'Failed to create todo' },
-      { status: 500 }
-    );
-  }
-}
+  const parsed = await parseJsonBody(request, todosPostBodySchema)
+  if (!parsed.ok) return parsed.response
 
-export async function DELETE(request: NextRequest) {
-  try {
-    await connectDB();
-    const { searchParams } = new URL(request.url);
-    const ids = searchParams.get('ids');
+  const { text, priority, categoryId, dueDate } = parsed.data
+  const categoryIdForDb = categoryId === undefined ? null : categoryId
 
-    if (!ids) {
-      return NextResponse.json(
-        { success: false, error: 'No IDs provided' },
-        { status: 400 }
-      );
+  if (categoryIdForDb !== null) {
+    const cat = await prisma.category.findUnique({ where: { id: categoryIdForDb } })
+    if (!cat) {
+      return jsonError('Category not found', 400, { code: 'CATEGORY_NOT_FOUND' })
     }
-
-    const idArray = ids.split(',');
-    await Todo.deleteMany({ _id: { $in: idArray } });
-    return NextResponse.json({ success: true, message: 'Todos deleted' });
-  } catch (error) {
-    console.error('DELETE /api/todos error:', error);
-    return NextResponse.json(
-      { success: false, error: 'Failed to delete todos' },
-      { status: 500 }
-    );
   }
+
+  const row = await prisma.todo.create({
+    data: {
+      text,
+      priority,
+      categoryId: categoryIdForDb,
+      ...(dueDate !== undefined
+        ? { dueDate: new Date(`${dueDate}T12:00:00.000Z`) }
+        : {}),
+    },
+  })
+
+  return NextResponse.json(todoToDto(row), { status: 201 })
 }
