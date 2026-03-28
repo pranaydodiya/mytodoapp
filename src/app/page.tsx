@@ -9,7 +9,32 @@ type FilterState = {
   completed: 'all' | 'completed' | 'pending'
   priority: 'all' | Priority
   categoryId: number | null | 'all'
-  sort: TodoSort
+  completed:  boolean | 'all'
+  sort:       SortField
+  sortDir:    SortDir
+}
+
+const DEFAULT_FILTERS: FilterState = {
+  search:     '',
+  priority:   'all',
+  categoryId: 'all',
+  completed:  'all',
+  sort:       'createdAt',
+  sortDir:    'desc',
+}
+
+// ─── API helpers modified ──────────────────────────────────────────────────────────────
+
+async function apiFetchTodos(filters: FilterState): Promise<Todo[]> {
+  const p = new URLSearchParams()
+  if (filters.priority   !== 'all') p.set('priority',   filters.priority)
+  if (filters.categoryId !== 'all') p.set('categoryId', String(filters.categoryId))
+  if (filters.completed  !== 'all') p.set('completed',  String(filters.completed))
+  p.set('sort',    filters.sort)
+  p.set('sortDir', filters.sortDir)
+  const res = await fetch(`/api/todos?${p}`)
+  if (!res.ok) throw new Error('Failed to fetch todos')
+  return res.json()
 }
 
 type LoadingState = 'idle' | 'loading' | 'error'

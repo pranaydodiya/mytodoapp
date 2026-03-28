@@ -4,9 +4,11 @@ Next.js (App Router) todo list with categories, priorities, due dates, filters, 
 
 ## Prerequisites
 
+
+
 - Node.js 20+
 - npm
-
+Made By Pranay Dodiya
 ## Setup
 
 1. Install dependencies:
