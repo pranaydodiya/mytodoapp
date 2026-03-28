@@ -215,6 +215,61 @@ export default function Home() {
     }
   }
 
+  // ✨ New Action Handlers
+  async function clearCompleted() {
+    try {
+      setError(null)
+      setLoading('loading')
+      const res = await fetch('/api/todos/actions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'clearCompleted' }),
+      })
+      if (!res.ok) throw new Error('Failed to clear completed')
+      await refreshAll(filters)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to clear completed')
+    } finally {
+      setLoading('idle')
+    }
+  }
+
+  async function toggleAll(completed: boolean) {
+    try {
+      setError(null)
+      setLoading('loading')
+      const res = await fetch('/api/todos/actions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'toggleAll', completed }),
+      })
+      if (!res.ok) throw new Error('Failed to toggle all')
+      await refreshAll(filters)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to toggle all')
+    } finally {
+      setLoading('idle')
+    }
+  }
+
+  async function duplicateTodo(id: number) {
+    try {
+      setError(null)
+      setTodoBusyId(id)
+      const res = await fetch('/api/todos/actions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'duplicate', id }),
+      })
+      if (!res.ok) throw new Error('Failed to duplicate')
+      await refreshAll(filters)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to duplicate')
+    } finally {
+      setTodoBusyId(null)
+    }
+  }
+
   function handleFilterChange(partial: Partial<FilterState>) {
     const nextFilters = { ...filters, ...partial }
     setFilters(nextFilters)
@@ -457,6 +512,23 @@ export default function Home() {
                   Completed
                 </button>
               </div>
+
+              <div className="flex flex-wrap gap-2 text-xs">
+                <button
+                  type="button"
+                  onClick={() => void toggleAll(true)}
+                  className="rounded-full bg-zinc-100 px-3 py-1 font-medium text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+                >
+                  Mark all as done
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void clearCompleted()}
+                  className="rounded-full bg-red-50 px-3 py-1 font-medium text-red-600 hover:bg-red-100 dark:bg-red-950 dark:text-red-400 dark:hover:bg-red-900"
+                >
+                  Clear completed
+                </button>
+              </div>
               <div className="flex flex-wrap items-center gap-2 text-xs">
                 <label className="flex items-center gap-1.5 text-zinc-600 dark:text-zinc-400">
                   <span className="font-medium">Sort</span>
@@ -671,6 +743,14 @@ export default function Home() {
                           </span>
                         </button>
                         <div className="flex shrink-0 gap-1">
+                          <button
+                            type="button"
+                            onClick={() => void duplicateTodo(todo.id)}
+                            disabled={todoBusyId !== null || editingId !== null}
+                            className="rounded-full px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-200 disabled:opacity-40 dark:hover:bg-zinc-800"
+                          >
+                            Copy
+                          </button>
                           <button
                             type="button"
                             onClick={() => beginEdit(todo)}

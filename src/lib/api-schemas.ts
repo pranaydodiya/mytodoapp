@@ -63,3 +63,15 @@ export const categoryPostBodySchema = z.object({
 export const categoryDeleteQuerySchema = z.object({
   id: z.coerce.number().int().positive({ message: 'id must be a positive integer' }),
 })
+
+export const todoActionBodySchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('clearCompleted') }),
+  z.object({ action: z.literal('toggleAll'), completed: z.boolean() }),
+  z.object({ action: z.literal('getUpcoming'), days: z.number().int().positive().default(7) }),
+  z.object({ action: z.literal('duplicate'), id: z.number().int().positive() }),
+  z.object({
+    action: z.literal('bulkUpdateCategory'),
+    ids: z.array(z.number().int().positive()),
+    categoryId: z.number().int().positive().nullable(),
+  }),
+])
