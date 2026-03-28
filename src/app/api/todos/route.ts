@@ -49,7 +49,26 @@ export async function GET(request: NextRequest) {
     where.dueDate = { not: null, lt: start }
   } else if (duePreset === 'no_due') {
     where.dueDate = null
-  }
+// Current (verbose):
+  export async function GET(request: NextRequest) {
+    const query = parseQueryParams(request.nextUrl.searchParams, todosGetQuerySchema)
+    if (!query.ok) return query.response
+
+    const {
+      search,
+      completed,
+      priority,
+      categoryId: categoryIdRaw,
+      sort: sortRaw,
+      due: duePreset,
+    } = query.data
+    const sort:
+
+## 🔒 Security
+
+### 🟠 Warnings
+- **`src/app/api/todos/[id]/duplicate/route.ts:14-37`** — **CSRF Vulnerability**
+  The new `POST` endpoint for duplicating todos performs a state-changing operation. Without CSRF protection (e.g., anti-CSRF tokens), this endpoint could be vulnerable to Cross-Site Request Forgery attacks if the application uses session-based authentication. This is a general concern for all state-changing API routes in the application, not unique to this PR, but it's important to note.
 
   const prioritySort = sort === 'priority_desc' || sort === 'priority_asc'
 
