@@ -5,6 +5,7 @@ import { DELETE, PATCH } from './route'
 
 describe('/api/todos/[id]', () => {
   afterEach(async () => {
+    await prisma.subtask.deleteMany()
     await prisma.todo.deleteMany()
   })
 
@@ -24,6 +25,7 @@ describe('/api/todos/[id]', () => {
     const body = await res.json()
     expect(body.text).toBe('new label')
     expect(body.priority).toBe('high')
+    expect(body.subtasks).toEqual([])
   })
 
   it('PATCH 400 when body is empty', async () => {

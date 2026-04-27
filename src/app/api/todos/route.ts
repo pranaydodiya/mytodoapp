@@ -18,8 +18,12 @@ export async function GET(request: NextRequest) {
     categoryId: categoryIdRaw,
     sort: sortRaw,
     due: duePreset,
+    includeSubtasks,
   } = query.data
   const sort: TodoSort = sortRaw ?? 'createdAt_desc'
+  const subtaskInclude = includeSubtasks
+    ? { subtasks: { orderBy: { position: 'asc' as const } } }
+    : undefined
 
   const where: Prisma.TodoWhereInput = {}
 
@@ -53,10 +57,12 @@ export async function GET(request: NextRequest) {
 
   const prioritySort = sort === 'priority_desc' || sort === 'priority_asc'
 
+  const baseFind = { where, ...(subtaskInclude ? { include: subtaskInclude } : {}) }
+
   const rows = prioritySort
-    ? sortTodoRows(await prisma.todo.findMany({ where }), sort)
+    ? sortTodoRows(await prisma.todo.findMany(baseFind), sort)
     : await prisma.todo.findMany({
-        where,
+        ...baseFind,
         orderBy:
           sort === 'createdAt_asc'
             ? { createdAt: 'asc' }
@@ -93,6 +99,7 @@ export async function POST(request: NextRequest) {
         ? { dueDate: new Date(`${dueDate}T12:00:00.000Z`) }
         : {}),
     },
+    include: { subtasks: { orderBy: { position: 'asc' } } },
   })
 
   return NextResponse.json(todoToDto(row), { status: 201 })

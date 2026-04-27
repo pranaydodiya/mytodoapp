@@ -13,6 +13,16 @@ export const todoSortSchema = z.enum([
 
 export const todosDuePresetSchema = z.enum(['today', 'overdue', 'no_due'])
 
+/** Query ?includeSubtasks= — default true when omitted. */
+const includeSubtasksFromQuery = z
+  .string()
+  .optional()
+  .transform((s): boolean => {
+    if (s === undefined || s === '') return true
+    const t = s.toLowerCase()
+    return t !== 'false' && t !== '0'
+  })
+
 export const todosGetQuerySchema = z.object({
   search: z.string().optional(),
   completed: z.enum(['true', 'false']).optional(),
@@ -20,6 +30,7 @@ export const todosGetQuerySchema = z.object({
   categoryId: z.union([z.literal('null'), z.string().regex(/^\d+$/)]).optional(),
   sort: todoSortSchema.optional(),
   due: todosDuePresetSchema.optional(),
+  includeSubtasks: includeSubtasksFromQuery,
 })
 
 export const todosPostBodySchema = z.object({
@@ -66,3 +77,19 @@ export const categoryPostBodySchema = z.object({
 export const categoryDeleteQuerySchema = z.object({
   id: z.coerce.number().int().positive({ message: 'id must be a positive integer' }),
 })
+
+export const subtaskPostBodySchema = z.object({
+  text: z.string().trim().min(1, 'text is required'),
+  position: z.number().int().min(0).optional(),
+})
+
+export const subtaskPatchBodySchema = z
+  .object({
+    text: z.string().trim().min(1, 'text cannot be empty').optional(),
+    completed: z.boolean().optional(),
+    position: z.number().int().min(0).optional(),
+  })
+  .refine(
+    d => d.text !== undefined || d.completed !== undefined || d.position !== undefined,
+    { message: 'At least one of text, completed, position is required' },
+  )

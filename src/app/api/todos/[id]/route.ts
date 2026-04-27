@@ -54,6 +54,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   const row = await prisma.todo.update({
     where: { id },
     data,
+    include: { subtasks: { orderBy: { position: 'asc' } } },
   })
   return NextResponse.json(todoToDto(row))
 }

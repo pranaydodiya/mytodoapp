@@ -16,15 +16,30 @@ model Category {
 }
 
 model Todo {
-  id         Int       @id @default(autoincrement())
+  id         Int        @id @default(autoincrement())
   text       String
-  completed  Boolean   @default(false)
-  priority   Priority  @default(medium)
+  completed  Boolean    @default(false)
+  priority   Priority   @default(medium)
   dueDate    DateTime?
-  createdAt  DateTime  @default(now())
+  createdAt  DateTime   @default(now())
 
   categoryId Int?
-  category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  category   Category?  @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  subtasks   Subtask[]
+}
+
+model Subtask {
+  id        Int      @id @default(autoincrement())
+  text      String
+  completed Boolean  @default(false)
+  /// Zero-based order within the parent todo.
+  position  Int
+  createdAt DateTime @default(now())
+
+  todoId Int
+  todo   Todo @relation(fields: [todoId], references: [id], onDelete: Cascade)
+
+  @@index([todoId, position])
 }
 
 enum Priority {

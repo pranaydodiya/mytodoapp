@@ -18,19 +18,38 @@ export async function POST(_request: Request, context: RouteContext) {
     return jsonError('Invalid id', 400, { code: 'INVALID_ID' })
   }
 
-  const existing = await prisma.todo.findUnique({ where: { id } })
+  const existing = await prisma.todo.findUnique({
+    where: { id },
+    include: { subtasks: { orderBy: { position: 'asc' } } },
+  })
   if (!existing) {
     return jsonError('Todo not found', 404, { code: 'NOT_FOUND' })
   }
 
-  const row = await prisma.todo.create({
-    data: {
-      text: existing.text,
-      priority: existing.priority,
-      categoryId: existing.categoryId,
-      dueDate: existing.dueDate,
-      completed: false,
-    },
+  const row = await prisma.$transaction(async tx => {
+    const created = await tx.todo.create({
+      data: {
+        text: existing.text,
+        priority: existing.priority,
+        categoryId: existing.categoryId,
+        dueDate: existing.dueDate,
+        completed: false,
+      },
+    })
+    for (const s of existing.subtasks) {
+      await tx.subtask.create({
+        data: {
+          todoId: created.id,
+          text: s.text,
+          completed: s.completed,
+          position: s.position,
+        },
+      })
+    }
+    return tx.todo.findUniqueOrThrow({
+      where: { id: created.id },
+      include: { subtasks: { orderBy: { position: 'asc' } } },
+    })
   })
 
   return NextResponse.json(todoToDto(row), { status: 201 })

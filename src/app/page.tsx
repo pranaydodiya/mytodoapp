@@ -2,6 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { downloadTodosAsJson } from '@/lib/todo-export'
+import { useAppSettings } from '@/hooks/useAppSettings'
+import { useTodoKeyboardShortcuts } from '@/hooks/useTodoKeyboardShortcuts'
+import { KeyboardShortcutsDialog } from '@/components/KeyboardShortcutsDialog'
+import { TodoSubtasksPanel } from '@/components/TodoSubtasksPanel'
 import type { TodoSort } from '@/lib/todo-sort'
 import type { Category, Priority, Todo, TodoStats } from '@/types/todo'
 
@@ -42,6 +46,12 @@ export default function Home() {
   filtersRef.current = filters
   const skipInitialSearchEffect = useRef(true)
 
+  const { settings, ready: settingsReady } = useAppSettings()
+  const [helpOpen, setHelpOpen] = useState(false)
+
+  const newTaskInputRef = useRef<HTMLInputElement>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+
   const [newText, setNewText] = useState('')
   const [newPriority, setNewPriority] = useState<Priority>('medium')
   /** `''` = “(none)”; `null` = explicit uncategorized; otherwise a category id. */
@@ -59,6 +69,33 @@ export default function Home() {
   const [addingCategory, setAddingCategory] = useState(false)
 
   const hasTodos = useMemo(() => todos.length > 0, [todos])
+
+  useEffect(() => {
+    if (settingsReady) {
+      setNewPriority(settings.defaultNewTaskPriority)
+    }
+  }, [settings.defaultNewTaskPriority, settingsReady])
+
+  useTodoKeyboardShortcuts({
+    enabled: settingsReady,
+    settings,
+    openHelp: () => setHelpOpen(true),
+    onOpenHelp: () => setHelpOpen(true),
+    onFocusNewTask: () => newTaskInputRef.current?.focus(),
+    onFocusSearch: () => {
+      searchInputRef.current?.focus()
+      searchInputRef.current?.select()
+    },
+    onEscapeOverlay: () => {
+      if (helpOpen) {
+        setHelpOpen(false)
+      }
+    },
+  })
+
+  function mergeTodo(updated: Todo) {
+    setTodos(prev => prev.map(t => (t.id === updated.id ? updated : t)))
+  }
 
   async function fetchCategories() {
     const res = await fetch('/api/categories')
@@ -135,7 +172,6 @@ export default function Home() {
       })
     }, 300)
     return () => window.clearTimeout(id)
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounce only when search string changes
   }, [filters.search])
 
   async function handleCreateTodo(e: React.FormEvent) {
@@ -330,7 +366,9 @@ export default function Home() {
   }
 
   function handleExportTodos() {
-    downloadTodosAsJson(todos)
+    const base = (settings.exportFilePrefix || 'todos').replace(/[^a-zA-Z0-9._-]+/g, '-')
+    const name = base.endsWith('.json') ? base : `${base}-export.json`
+    downloadTodosAsJson(todos, name)
   }
 
   async function saveEdit(e: React.FormEvent, todoId: number) {
@@ -369,6 +407,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-zinc-50 px-4 py-8 font-sans text-zinc-900 dark:bg-black dark:text-zinc-50">
+      <KeyboardShortcutsDialog open={helpOpen} onClose={() => setHelpOpen(false)} />
       <div className="mx-auto flex max-w-6xl flex-col gap-6 md:flex-row">
         <aside className="w-full space-y-4 rounded-2xl bg-white p-6 shadow-sm dark:bg-zinc-900 md:w-72">
           <header>
@@ -471,10 +510,25 @@ export default function Home() {
         </aside>
 
         <main className="flex-1 space-y-4 rounded-2xl bg-white p-6 shadow-sm dark:bg-zinc-900">
+          {settingsReady && settings.showShortcutChips && settings.keyboardShortcutsEnabled && (
+            <div
+              className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-zinc-200 bg-zinc-50/80 px-3 py-2 text-[11px] text-zinc-600 dark:border-zinc-800 dark:bg-zinc-950/50 dark:text-zinc-400"
+              aria-label="Keyboard shortcuts"
+            >
+              <span className="font-medium text-zinc-800 dark:text-zinc-200">Shortcuts:</span>
+              <kbd className="rounded border border-zinc-200 bg-white px-1 font-mono dark:border-zinc-600 dark:bg-zinc-900">N</kbd>
+              <span>new</span>
+              <kbd className="rounded border border-zinc-200 bg-white px-1 font-mono dark:border-zinc-600 dark:bg-zinc-900">/</kbd>
+              <span>search</span>
+              <kbd className="rounded border border-zinc-200 bg-white px-1 font-mono dark:border-zinc-600 dark:bg-zinc-900">?</kbd>
+              <span>help</span>
+            </div>
+          )}
           <section className="space-y-3">
             <form onSubmit={handleCreateTodo} className="space-y-3">
               <div className="flex flex-col gap-3 md:flex-row">
                 <input
+                  ref={newTaskInputRef}
                   type="text"
                   data-testid="task-title-input"
                   value={newText}
@@ -693,6 +747,7 @@ export default function Home() {
                   <option value="low">Low</option>
                 </select>
                 <input
+                  ref={searchInputRef}
                   type="search"
                   data-testid="task-search-input"
                   value={filters.search}
@@ -806,6 +861,7 @@ export default function Home() {
                         </div>
                       </form>
                     ) : (
+                      <div>
                       <div className="flex items-start justify-between gap-2">
                         <button
                           type="button"
@@ -903,6 +959,19 @@ export default function Home() {
                             Delete
                           </button>
                         </div>
+                      </div>
+                      {editingId !== todo.id && (
+                        <TodoSubtasksPanel
+                          todo={todo}
+                          settings={settings}
+                          disabled={
+                            editingId !== null ||
+                            (todoBusyId !== null && todoBusyId === todo.id)
+                          }
+                          onTodoUpdated={mergeTodo}
+                          onError={setError}
+                        />
+                      )}
                       </div>
                     )}
                   </li>

@@ -14,8 +14,8 @@ const PRIORITY_RANK: Record<Priority, number> = {
   low: 2,
 }
 
-export function sortTodoRows(rows: PrismaTodo[], sort: TodoSort): PrismaTodo[] {
-  const copy = [...rows]
+export function sortTodoRows<T extends PrismaTodo>(rows: T[], sort: TodoSort): T[] {
+  const copy = [...rows] as T[]
 
   switch (sort) {
     case 'createdAt_desc':

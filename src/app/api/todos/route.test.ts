@@ -5,6 +5,7 @@ import { GET, POST } from './route'
 
 describe('/api/todos', () => {
   afterEach(async () => {
+    await prisma.subtask.deleteMany()
     await prisma.todo.deleteMany()
     await prisma.category.deleteMany()
   })
@@ -31,6 +32,7 @@ describe('/api/todos', () => {
     expect(created.categoryId).toBeNull()
     expect(created.dueDate).toBeNull()
     expect(typeof created.createdAt).toBe('string')
+    expect(created.subtasks).toEqual([])
 
     const list = await GET(new NextRequest('http://localhost/api/todos'))
     const todos = await list.json()

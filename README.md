@@ -34,6 +34,14 @@ Next.js (App Router) todo list with categories, priorities, due dates, filters, 
    npm run prisma:seed
    ```
 
+## App routes
+
+| Path | Description |
+|------|-------------|
+| `/` | Main tasks UI |
+| `/about` | About the app |
+| `/help` | Short usage help |
+
 ## Development
 
 ```bash
@@ -100,6 +108,16 @@ First-time Playwright browsers:
 
 ```bash
 npx playwright install chromium
+```
+
+E2E starts `next dev` on **http://127.0.0.1:3105** so a different process on port 3000 will not be mistaken for this app. To attach to an already running dev server on 3105, set `PW_REUSE_E2E_SERVER=1` and ensure `DATABASE_URL` matches the E2E file above.
+
+## CI
+
+On push/PR to `main` (or `master`), GitHub Actions runs ESLint, Vitest, production build, and a Playwright job (Chromium with system deps on Ubuntu). Local parity:
+
+```bash
+npm run lint && npm test && npm run build
 ```
 
 ## API errors
