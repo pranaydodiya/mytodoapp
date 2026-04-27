@@ -1,20 +1,16 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Geist, Geist_Mono } from "next/font/google";
+import { AppNav } from "@/components/AppNav";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
 export const metadata: Metadata = {
-  title: "TaskFlow — Premium Todo App",
-  description:
-    "Manage your tasks efficiently with TaskFlow, a beautiful and powerful todo application powered by Next.js and MongoDB.",
-  keywords: ["todo", "task management", "productivity", "nextjs", "mongodb"],
-  authors: [{ name: "TaskFlow" }],
-  openGraph: {
-    title: "TaskFlow — Premium Todo App",
-    description: "Manage your tasks efficiently with TaskFlow",
-    type: "website",
+  title: {
+    default: "Todo app",
+    template: "%s | Todo app",
   },
+  description: "Tasks with categories, priorities, and due dates.",
 };
 
 export default function RootLayout({
@@ -23,8 +19,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={inter.variable}>
-      <body className={inter.className}>{children}</body>
+    <html lang="en">
+      <body
+        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+      >
+        <AppNav />
+        {children}
+      </body>
     </html>
   );
 }

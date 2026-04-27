@@ -37,7 +37,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     }
   }
 
-  const data: Prisma.TodoUpdateInput = {}
+  const data: Prisma.TodoUncheckedUpdateInput = {}
   if (body.completed !== undefined) data.completed = body.completed
   if (body.text !== undefined) data.text = body.text
   if (body.priority !== undefined) data.priority = body.priority
@@ -54,6 +54,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   const row = await prisma.todo.update({
     where: { id },
     data,
+    include: { subtasks: { orderBy: { position: 'asc' } } },
   })
   return NextResponse.json(todoToDto(row))
 }

@@ -4,15 +4,26 @@ import { jsonError, parseJsonBody, parseQueryParams } from '@/lib/api-response'
 import { todosGetQuerySchema, todosPostBodySchema } from '@/lib/api-schemas'
 import { prisma } from '@/lib/prisma'
 import { todoToDto } from '@/lib/todo-mappers'
+import { utcDayBounds } from '@/lib/todo-due-bounds'
 import { sortTodoRows, type TodoSort } from '@/lib/todo-sort'
 
 export async function GET(request: NextRequest) {
   const query = parseQueryParams(request.nextUrl.searchParams, todosGetQuerySchema)
   if (!query.ok) return query.response
 
-  const { search, completed, priority, categoryId: categoryIdRaw, sort: sortRaw } =
-    query.data
+  const {
+    search,
+    completed,
+    priority,
+    categoryId: categoryIdRaw,
+    sort: sortRaw,
+    due: duePreset,
+    includeSubtasks,
+  } = query.data
   const sort: TodoSort = sortRaw ?? 'createdAt_desc'
+  const subtaskInclude = includeSubtasks
+    ? { subtasks: { orderBy: { position: 'asc' as const } } }
+    : undefined
 
   const where: Prisma.TodoWhereInput = {}
 
@@ -33,28 +44,25 @@ export async function GET(request: NextRequest) {
     where.categoryId = Number(categoryIdRaw)
   }
 
+  if (duePreset === 'today') {
+    const { start, end } = utcDayBounds()
+    where.dueDate = { gte: start, lte: end }
+  } else if (duePreset === 'overdue') {
+    const { start } = utcDayBounds()
+    where.completed = false
+    where.dueDate = { not: null, lt: start }
+  } else if (duePreset === 'no_due') {
+    where.dueDate = null
+  }
+
   const prioritySort = sort === 'priority_desc' || sort === 'priority_asc'
 
-  const rows = prioritySort
-// Current (verbose):
-  const prioritySort = sort === 'priority_desc' || sort === 'priority_asc'
+  const baseFind = { where, ...(subtaskInclude ? { include: subtaskInclude } : {}) }
 
   const rows = prioritySort
-    ? sortTodoRows(await prisma.todo.findMany({ where }), sort)
+    ? sortTodoRows(await prisma.todo.findMany(baseFind), sort)
     : await prisma.todo.findMany({
-        where,
-        orderBy:
-          sort === 'createdAt_asc'
-            ? { createdAt: 'asc' }
-            : sort === 'dueDate_asc'
-              ? [{ dueDate: 'asc' }, { createdAt: 'desc' }]
-              : sort === 'dueDate_desc'
-                ? [{ dueDate: 'desc' }, { createdAt: 'desc' }]
-// Current (verbose):
-  const rows = prioritySort
-    ? sortTodoRows(await prisma.todo.findMany({ where }), sort)
-    : await prisma.todo.findMany({
-        where,
+        ...baseFind,
         orderBy:
           sort === 'createdAt_asc'
             ? { createdAt: 'asc' }
@@ -150,6 +158,7 @@ export async function POST(request: NextRequest) {
         ? { dueDate: new Date(`${dueDate}T12:00:00.000Z`) }
         : {}),
     },
+    include: { subtasks: { orderBy: { position: 'asc' } } },
   })
 
   return NextResponse.json(todoToDto(row), { status: 201 })

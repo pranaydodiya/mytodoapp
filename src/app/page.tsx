@@ -1,40 +1,23 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { downloadTodosAsJson } from '@/lib/todo-export'
+import { useAppSettings } from '@/hooks/useAppSettings'
+import { useTodoKeyboardShortcuts } from '@/hooks/useTodoKeyboardShortcuts'
+import { KeyboardShortcutsDialog } from '@/components/KeyboardShortcutsDialog'
+import { TodoSubtasksPanel } from '@/components/TodoSubtasksPanel'
 import type { TodoSort } from '@/lib/todo-sort'
 import type { Category, Priority, Todo, TodoStats } from '@/types/todo'
+
+type DuePreset = 'all' | 'today' | 'overdue' | 'no_due'
 
 type FilterState = {
   search: string
   completed: 'all' | 'completed' | 'pending'
   priority: 'all' | Priority
   categoryId: number | null | 'all'
-  completed:  boolean | 'all'
-  sort:       SortField
-  sortDir:    SortDir
-}
-
-const DEFAULT_FILTERS: FilterState = {
-  search:     '',
-  priority:   'all',
-  categoryId: 'all',
-  completed:  'all',
-  sort:       'createdAt',
-  sortDir:    'desc',
-}
-
-// ─── API helpers modified ──────────────────────────────────────────────────────────────
-
-async function apiFetchTodos(filters: FilterState): Promise<Todo[]> {
-  const p = new URLSearchParams()
-  if (filters.priority   !== 'all') p.set('priority',   filters.priority)
-  if (filters.categoryId !== 'all') p.set('categoryId', String(filters.categoryId))
-  if (filters.completed  !== 'all') p.set('completed',  String(filters.completed))
-  p.set('sort',    filters.sort)
-  p.set('sortDir', filters.sortDir)
-  const res = await fetch(`/api/todos?${p}`)
-  if (!res.ok) throw new Error('Failed to fetch todos')
-  return res.json()
+  sort: TodoSort
+  duePreset: DuePreset
 }
 
 type LoadingState = 'idle' | 'loading' | 'error'
@@ -50,6 +33,7 @@ export default function Home() {
     priority: 'all',
     categoryId: 'all',
     sort: 'createdAt_desc',
+    duePreset: 'all',
   })
 
   const [loading, setLoading] = useState<LoadingState>('idle')
@@ -61,6 +45,12 @@ export default function Home() {
   const filtersRef = useRef(filters)
   filtersRef.current = filters
   const skipInitialSearchEffect = useRef(true)
+
+  const { settings, ready: settingsReady } = useAppSettings()
+  const [helpOpen, setHelpOpen] = useState(false)
+
+  const newTaskInputRef = useRef<HTMLInputElement>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
 
   const [newText, setNewText] = useState('')
   const [newPriority, setNewPriority] = useState<Priority>('medium')
@@ -74,7 +64,38 @@ export default function Home() {
   const [editCategoryId, setEditCategoryId] = useState<number | null>(null)
   const [editDueDate, setEditDueDate] = useState('')
 
+  const [newCategoryName, setNewCategoryName] = useState('')
+  const [newCategoryColor, setNewCategoryColor] = useState('#6b7280')
+  const [addingCategory, setAddingCategory] = useState(false)
+
   const hasTodos = useMemo(() => todos.length > 0, [todos])
+
+  useEffect(() => {
+    if (settingsReady) {
+      setNewPriority(settings.defaultNewTaskPriority)
+    }
+  }, [settings.defaultNewTaskPriority, settingsReady])
+
+  useTodoKeyboardShortcuts({
+    enabled: settingsReady,
+    settings,
+    openHelp: () => setHelpOpen(true),
+    onOpenHelp: () => setHelpOpen(true),
+    onFocusNewTask: () => newTaskInputRef.current?.focus(),
+    onFocusSearch: () => {
+      searchInputRef.current?.focus()
+      searchInputRef.current?.select()
+    },
+    onEscapeOverlay: () => {
+      if (helpOpen) {
+        setHelpOpen(false)
+      }
+    },
+  })
+
+  function mergeTodo(updated: Todo) {
+    setTodos(prev => prev.map(t => (t.id === updated.id ? updated : t)))
+  }
 
   async function fetchCategories() {
     const res = await fetch('/api/categories')
@@ -107,6 +128,9 @@ export default function Home() {
         params.set('categoryId', String(currentFilters.categoryId))
       }
       params.set('sort', currentFilters.sort)
+      if (currentFilters.duePreset !== 'all') {
+        params.set('due', currentFilters.duePreset)
+      }
 
       const query = params.toString()
       const res = await fetch(`/api/todos${query ? `?${query}` : ''}`)
@@ -148,7 +172,6 @@ export default function Home() {
       })
     }, 300)
     return () => window.clearTimeout(id)
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounce only when search string changes
   }, [filters.search])
 
   async function handleCreateTodo(e: React.FormEvent) {
@@ -317,6 +340,92 @@ export default function Home() {
     setEditingId(null)
   }
 
+  async function handleAddCategory(e: React.FormEvent) {
+    e.preventDefault()
+    const name = newCategoryName.trim()
+    if (!name) return
+
+    try {
+      setError(null)
+      setAddingCategory(true)
+      const res = await fetch('/api/categories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, color: newCategoryColor }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || 'Failed to add category')
+      }
+      setNewCategoryName('')
+      setNewCategoryColor('#6b7280')
+      await refreshAll(filters)
+    } catch (err) {
+      console.error(err)
+      setError(err instanceof Error ? err.message : 'Failed to add category')
+    } finally {
+      setAddingCategory(false)
+    }
+  }
+
+  async function duplicateTodo(id: number) {
+    try {
+      setError(null)
+      setTodoBusyId(id)
+      const res = await fetch(`/api/todos/${id}/duplicate`, { method: 'POST' })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || 'Failed to duplicate')
+      }
+      await refreshAll(filters)
+    } catch (err) {
+      console.error(err)
+      setError(err instanceof Error ? err.message : 'Failed to duplicate')
+    } finally {
+      setTodoBusyId(null)
+    }
+  }
+
+  async function clearCompletedTodos() {
+    if (!stats?.completed) return
+    if (!window.confirm(`Delete ${stats.completed} completed task(s)?`)) return
+    try {
+      setError(null)
+      const res = await fetch('/api/todos/completed', { method: 'DELETE' })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || 'Failed to clear completed')
+      }
+      await refreshAll(filters)
+    } catch (err) {
+      console.error(err)
+      setError(err instanceof Error ? err.message : 'Failed to clear completed')
+    }
+  }
+
+  async function completeAllPending() {
+    if (!stats?.pending) return
+    if (!window.confirm(`Mark all ${stats.pending} active task(s) as done?`)) return
+    try {
+      setError(null)
+      const res = await fetch('/api/todos/complete-all', { method: 'POST' })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || 'Failed to complete all')
+      }
+      await refreshAll(filters)
+    } catch (err) {
+      console.error(err)
+      setError(err instanceof Error ? err.message : 'Failed to complete all')
+    }
+  }
+
+  function handleExportTodos() {
+    const base = (settings.exportFilePrefix || 'todos').replace(/[^a-zA-Z0-9._-]+/g, '-')
+    const name = base.endsWith('.json') ? base : `${base}-export.json`
+    downloadTodosAsJson(todos, name)
+  }
+
   async function saveEdit(e: React.FormEvent, todoId: number) {
     e.preventDefault()
     const text = editText.trim()
@@ -353,6 +462,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-zinc-50 px-4 py-8 font-sans text-zinc-900 dark:bg-black dark:text-zinc-50">
+      <KeyboardShortcutsDialog open={helpOpen} onClose={() => setHelpOpen(false)} />
       <div className="mx-auto flex max-w-6xl flex-col gap-6 md:flex-row">
         <aside className="w-full space-y-4 rounded-2xl bg-white p-6 shadow-sm dark:bg-zinc-900 md:w-72">
           <header>
@@ -422,14 +532,58 @@ export default function Home() {
                 </button>
               ))}
             </div>
+            <form
+              onSubmit={e => void handleAddCategory(e)}
+              className="flex flex-col gap-2 border-t border-zinc-100 pt-3 dark:border-zinc-800"
+            >
+              <p className="text-[11px] font-medium text-zinc-500">New category</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="text"
+                  value={newCategoryName}
+                  onChange={e => setNewCategoryName(e.target.value)}
+                  placeholder="Name"
+                  className="min-w-0 flex-1 rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-950"
+                />
+                <input
+                  type="color"
+                  value={newCategoryColor}
+                  onChange={e => setNewCategoryColor(e.target.value)}
+                  className="h-7 w-10 cursor-pointer rounded border border-zinc-200 dark:border-zinc-700"
+                  title="Color"
+                />
+                <button
+                  type="submit"
+                  disabled={addingCategory || !newCategoryName.trim()}
+                  className="rounded-lg bg-zinc-200 px-2 py-1 text-xs font-medium text-zinc-800 disabled:opacity-50 dark:bg-zinc-800 dark:text-zinc-100"
+                >
+                  {addingCategory ? '…' : 'Add'}
+                </button>
+              </div>
+            </form>
           </section>
         </aside>
 
         <main className="flex-1 space-y-4 rounded-2xl bg-white p-6 shadow-sm dark:bg-zinc-900">
+          {settingsReady && settings.showShortcutChips && settings.keyboardShortcutsEnabled && (
+            <div
+              className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-zinc-200 bg-zinc-50/80 px-3 py-2 text-[11px] text-zinc-600 dark:border-zinc-800 dark:bg-zinc-950/50 dark:text-zinc-400"
+              aria-label="Keyboard shortcuts"
+            >
+              <span className="font-medium text-zinc-800 dark:text-zinc-200">Shortcuts:</span>
+              <kbd className="rounded border border-zinc-200 bg-white px-1 font-mono dark:border-zinc-600 dark:bg-zinc-900">N</kbd>
+              <span>new</span>
+              <kbd className="rounded border border-zinc-200 bg-white px-1 font-mono dark:border-zinc-600 dark:bg-zinc-900">/</kbd>
+              <span>search</span>
+              <kbd className="rounded border border-zinc-200 bg-white px-1 font-mono dark:border-zinc-600 dark:bg-zinc-900">?</kbd>
+              <span>help</span>
+            </div>
+          )}
           <section className="space-y-3">
             <form onSubmit={handleCreateTodo} className="space-y-3">
               <div className="flex flex-col gap-3 md:flex-row">
                 <input
+                  ref={newTaskInputRef}
                   type="text"
                   data-testid="task-title-input"
                   value={newText}
@@ -500,8 +654,36 @@ export default function Home() {
             </form>
           </section>
 
+          <section className="flex flex-wrap gap-2 border-t border-zinc-100 pt-3 dark:border-zinc-800">
+            <button
+              type="button"
+              onClick={handleExportTodos}
+              disabled={!hasTodos}
+              className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-200"
+            >
+              Export JSON
+            </button>
+            <button
+              type="button"
+              onClick={() => void completeAllPending()}
+              disabled={!stats?.pending}
+              className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-200"
+            >
+              Complete all active
+            </button>
+            <button
+              type="button"
+              onClick={() => void clearCompletedTodos()}
+              disabled={!stats?.completed}
+              className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-700 disabled:opacity-40 dark:border-red-900 dark:text-red-300"
+            >
+              Clear completed
+            </button>
+          </section>
+
           <section className="space-y-3 border-t border-zinc-100 pt-4 dark:border-zinc-800">
-            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div className="flex flex-col gap-2">
               <div className="flex flex-wrap gap-2 text-xs">
                 <button
                   type="button"
@@ -537,22 +719,53 @@ export default function Home() {
                   Completed
                 </button>
               </div>
-
               <div className="flex flex-wrap gap-2 text-xs">
+                <span className="self-center text-zinc-500">Due:</span>
                 <button
                   type="button"
-                  onClick={() => void toggleAll(true)}
-                  className="rounded-full bg-zinc-100 px-3 py-1 font-medium text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+                  onClick={() => handleFilterChange({ duePreset: 'all' })}
+                  className={`rounded-full px-3 py-1 font-medium ${
+                    filters.duePreset === 'all'
+                      ? 'bg-zinc-900 text-zinc-50 dark:bg-zinc-50 dark:text-zinc-900'
+                      : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700'
+                  }`}
                 >
-                  Mark all as done
+                  Any
                 </button>
                 <button
                   type="button"
-                  onClick={() => void clearCompleted()}
-                  className="rounded-full bg-red-50 px-3 py-1 font-medium text-red-600 hover:bg-red-100 dark:bg-red-950 dark:text-red-400 dark:hover:bg-red-900"
+                  onClick={() => handleFilterChange({ duePreset: 'today' })}
+                  className={`rounded-full px-3 py-1 font-medium ${
+                    filters.duePreset === 'today'
+                      ? 'bg-zinc-900 text-zinc-50 dark:bg-zinc-50 dark:text-zinc-900'
+                      : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700'
+                  }`}
                 >
-                  Clear completed
+                  Today
                 </button>
+                <button
+                  type="button"
+                  onClick={() => handleFilterChange({ duePreset: 'overdue' })}
+                  className={`rounded-full px-3 py-1 font-medium ${
+                    filters.duePreset === 'overdue'
+                      ? 'bg-zinc-900 text-zinc-50 dark:bg-zinc-50 dark:text-zinc-900'
+                      : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700'
+                  }`}
+                >
+                  Overdue
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleFilterChange({ duePreset: 'no_due' })}
+                  className={`rounded-full px-3 py-1 font-medium ${
+                    filters.duePreset === 'no_due'
+                      ? 'bg-zinc-900 text-zinc-50 dark:bg-zinc-50 dark:text-zinc-900'
+                      : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700'
+                  }`}
+                >
+                  No date
+                </button>
+              </div>
               </div>
               <div className="flex flex-wrap items-center gap-2 text-xs">
                 <label className="flex items-center gap-1.5 text-zinc-600 dark:text-zinc-400">
@@ -589,6 +802,7 @@ export default function Home() {
                   <option value="low">Low</option>
                 </select>
                 <input
+                  ref={searchInputRef}
                   type="search"
                   data-testid="task-search-input"
                   value={filters.search}
@@ -702,6 +916,7 @@ export default function Home() {
                         </div>
                       </form>
                     ) : (
+                      <div>
                       <div className="flex items-start justify-between gap-2">
                         <button
                           type="button"
@@ -771,7 +986,9 @@ export default function Home() {
                           <button
                             type="button"
                             onClick={() => void duplicateTodo(todo.id)}
-                            disabled={todoBusyId !== null || editingId !== null}
+                            disabled={
+                              todoBusyId !== null || editingId !== null
+                            }
                             className="rounded-full px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-200 disabled:opacity-40 dark:hover:bg-zinc-800"
                           >
                             Copy
@@ -797,6 +1014,19 @@ export default function Home() {
                             Delete
                           </button>
                         </div>
+                      </div>
+                      {editingId !== todo.id && (
+                        <TodoSubtasksPanel
+                          todo={todo}
+                          settings={settings}
+                          disabled={
+                            editingId !== null ||
+                            (todoBusyId !== null && todoBusyId === todo.id)
+                          }
+                          onTodoUpdated={mergeTodo}
+                          onError={setError}
+                        />
+                      )}
                       </div>
                     )}
                   </li>

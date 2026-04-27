@@ -5,6 +5,7 @@ import { GET, POST } from './route'
 
 describe('/api/todos', () => {
   afterEach(async () => {
+    await prisma.subtask.deleteMany()
     await prisma.todo.deleteMany()
     await prisma.category.deleteMany()
   })
@@ -31,6 +32,7 @@ describe('/api/todos', () => {
     expect(created.categoryId).toBeNull()
     expect(created.dueDate).toBeNull()
     expect(typeof created.createdAt).toBe('string')
+    expect(created.subtasks).toEqual([])
 
     const list = await GET(new NextRequest('http://localhost/api/todos'))
     const todos = await list.json()
@@ -108,6 +110,26 @@ describe('/api/todos', () => {
       new NextRequest(`http://localhost/api/todos?categoryId=${cat.id}`),
     )
     expect((await withCat.json())).toHaveLength(1)
+  })
+
+  it('GET due=no_due lists todos without due date', async () => {
+    await prisma.todo.createMany({
+      data: [
+        { text: 'nodue', priority: 'medium' },
+        {
+          text: 'hasdue',
+          priority: 'medium',
+          dueDate: new Date('2030-01-01T12:00:00.000Z'),
+        },
+      ],
+    })
+    const res = await GET(
+      new NextRequest('http://localhost/api/todos?due=no_due'),
+    )
+    expect(res.status).toBe(200)
+    const list: { text: string }[] = await res.json()
+    expect(list).toHaveLength(1)
+    expect(list[0].text).toBe('nodue')
   })
 
   it('GET sort=dueDate_asc orders by due date', async () => {
