@@ -263,6 +263,61 @@ export default function Home() {
     }
   }
 
+  // ✨ New Action Handlers
+  async function clearCompleted() {
+    try {
+      setError(null)
+      setLoading('loading')
+      const res = await fetch('/api/todos/actions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'clearCompleted' }),
+      })
+      if (!res.ok) throw new Error('Failed to clear completed')
+      await refreshAll(filters)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to clear completed')
+    } finally {
+      setLoading('idle')
+    }
+  }
+
+  async function toggleAll(completed: boolean) {
+    try {
+      setError(null)
+      setLoading('loading')
+      const res = await fetch('/api/todos/actions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'toggleAll', completed }),
+      })
+      if (!res.ok) throw new Error('Failed to toggle all')
+      await refreshAll(filters)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to toggle all')
+    } finally {
+      setLoading('idle')
+    }
+  }
+
+  async function duplicateTodo(id: number) {
+    try {
+      setError(null)
+      setTodoBusyId(id)
+      const res = await fetch('/api/todos/actions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'duplicate', id }),
+      })
+      if (!res.ok) throw new Error('Failed to duplicate')
+      await refreshAll(filters)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to duplicate')
+    } finally {
+      setTodoBusyId(null)
+    }
+  }
+
   function handleFilterChange(partial: Partial<FilterState>) {
     const nextFilters = { ...filters, ...partial }
     setFilters(nextFilters)
